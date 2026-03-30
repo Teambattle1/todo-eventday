@@ -10,8 +10,8 @@ import {
 } from './lib/utils'
 import {
   Plus, Check, Trash2, ChevronDown, ChevronRight, AlertTriangle,
-  ShoppingCart, ExternalLink, Clock, MapPin, Calendar, Loader2, X,
-  Lightbulb, Circle,
+  ExternalLink, MapPin, Calendar, Loader2,
+  Lightbulb,
 } from 'lucide-react'
 
 /* ━━━ Color Tokens ━━━ */
