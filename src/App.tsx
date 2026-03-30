@@ -214,9 +214,9 @@ function Column({ title, count, color, action, children }: { title:string; count
 
 function AddBtn({ label, onClick }: { label:string; onClick:()=>void }) {
   return (
-    <button onClick={onClick} style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 12px', borderRadius:8, fontSize:12, fontWeight:600, color:C.textSec, background:C.card, border:`1px solid ${C.border}`, cursor:'pointer', transition:'all 0.15s' }}
-      onMouseEnter={e => { e.currentTarget.style.background = C.cardHover; e.currentTarget.style.color = C.text }}
-      onMouseLeave={e => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.textSec }}>
+    <button onClick={onClick} style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 14px', borderRadius:8, fontSize:11, fontWeight:700, color:'#fff', background:C.red, border:'none', cursor:'pointer', transition:'all 0.15s', textTransform:'uppercase', letterSpacing:'0.04em' }}
+      onMouseEnter={e => { e.currentTarget.style.background = '#d44' }}
+      onMouseLeave={e => { e.currentTarget.style.background = C.red }}>
       <Plus style={{ width:14, height:14 }} /> {label}
     </button>
   )
@@ -446,10 +446,10 @@ function TaskForm({ employees, onDone, onCancel }: { employees:Map<string,Employ
       </select>
 
       <div style={{ display:'flex', gap:8, marginTop:2 }}>
-        <button type="submit" disabled={!title.trim()||busy} style={{ padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:700, background:C.blue, color:'#fff', border:'none', cursor:'pointer', opacity: (!title.trim()||busy) ? 0.35 : 1, transition:'opacity 0.15s' }}>
-          {busy ? 'Opretter...' : 'Opret opgave'}
+        <button type="submit" disabled={!title.trim()||busy} style={{ padding:'7px 16px', borderRadius:8, fontSize:11, fontWeight:700, background:C.red, color:'#fff', border:'none', cursor:'pointer', opacity: (!title.trim()||busy) ? 0.35 : 1, transition:'opacity 0.15s', textTransform:'uppercase', letterSpacing:'0.04em' }}>
+          {busy ? 'OPRETTER...' : 'OPRET OPGAVE'}
         </button>
-        <button type="button" onClick={onCancel} style={{ padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:500, background:'transparent', color:C.textMuted, border:'none', cursor:'pointer' }}>Annuller</button>
+        <button type="button" onClick={onCancel} style={{ padding:'7px 16px', borderRadius:8, fontSize:11, fontWeight:600, background:'transparent', color:C.textMuted, border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>ANNULLER</button>
       </div>
     </form>
   )
@@ -477,10 +477,10 @@ function ShopForm({ onDone, onCancel }: { onDone:(t:string,n?:string,u?:string)=
       <input placeholder="Note (valgfrit)" value={note} onChange={e=>sN(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
       <input placeholder="Link (valgfrit)" value={url} onChange={e=>sU(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
       <div style={{ display:'flex', gap:8, marginTop:2 }}>
-        <button type="submit" disabled={!title.trim()||busy} style={{ padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:700, background:C.green, color:'#fff', border:'none', cursor:'pointer', opacity: (!title.trim()||busy) ? 0.35 : 1 }}>
-          {busy ? 'Tilføjer...' : 'Tilføj'}
+        <button type="submit" disabled={!title.trim()||busy} style={{ padding:'7px 16px', borderRadius:8, fontSize:11, fontWeight:700, background:C.red, color:'#fff', border:'none', cursor:'pointer', opacity: (!title.trim()||busy) ? 0.35 : 1, textTransform:'uppercase', letterSpacing:'0.04em' }}>
+          {busy ? 'TILF\u00d8JER...' : 'TILF\u00d8J'}
         </button>
-        <button type="button" onClick={onCancel} style={{ padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:500, background:'transparent', color:C.textMuted, border:'none', cursor:'pointer' }}>Annuller</button>
+        <button type="button" onClick={onCancel} style={{ padding:'7px 16px', borderRadius:8, fontSize:11, fontWeight:600, background:'transparent', color:C.textMuted, border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>ANNULLER</button>
       </div>
     </form>
   )
