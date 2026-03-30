@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { useTodos } from './hooks/useTodos'
 import { useEmployees } from './hooks/useEmployees'
 import { useShopping } from './hooks/useShopping'
@@ -11,214 +11,160 @@ import {
 import {
   Plus, Check, Trash2, ChevronDown, ChevronRight, AlertTriangle,
   ShoppingCart, ExternalLink, Clock, MapPin, Calendar, Loader2, X,
-  Lightbulb, Flag,
+  Lightbulb, Circle,
 } from 'lucide-react'
 
-// ─── Priority & category configs ───
-const PRIORITIES = [
-  { value: 'HASTER', label: 'HASTER', color: '#ef4444' },
-  { value: 'Vigtigt', label: 'Vigtigt', color: '#f59e0b' },
-  { value: 'Normal', label: 'Normal', color: '#3b82f6' },
-  { value: 'let', label: 'Let', color: '#22c55e' },
-]
-
-const CATEGORY_COLORS: Record<string, string> = {
-  'idea-inspiration': '#a78bfa',
-  'idea-activity': '#ec4899',
-  'idea-company': '#06b6d4',
-  'IDEER': '#f59e0b',
+/* ━━━ Color Tokens ━━━ */
+const C = {
+  bg: '#0c0c0f',
+  surface: '#141418',
+  card: '#1a1a20',
+  cardHover: '#1f1f27',
+  input: '#16161c',
+  border: '#27272f',
+  borderLight: '#33333d',
+  text: '#e8e8ec',
+  textSec: '#9898a8',
+  textMuted: '#5a5a6a',
+  blue: '#4f8ff7',
+  green: '#34d399',
+  red: '#f06060',
+  amber: '#f5a623',
+  purple: '#9580ff',
+  pink: '#f472b6',
+  cyan: '#22d3ee',
 }
 
-const DUE_PRESETS = [
-  { value: 'today', label: 'I dag' },
-  { value: 'tomorrow', label: 'I morgen' },
-  { value: 'next_week', label: 'Næste uge' },
+const PRIORITIES = [
+  { value: 'HASTER', label: 'HASTER', color: C.red },
+  { value: 'Vigtigt', label: 'Vigtigt', color: C.amber },
+  { value: 'Normal', label: 'Normal', color: C.blue },
+  { value: 'let', label: 'Let', color: C.green },
 ]
 
-function computeDueDate(preset: string): string | null {
-  const d = new Date(); d.setHours(0, 0, 0, 0)
-  if (preset === 'today') return d.toISOString().slice(0, 10)
-  if (preset === 'tomorrow') { d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) }
-  if (preset === 'next_week') { d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return d.toISOString().slice(0, 10) }
+const CAT_COLORS: Record<string, string> = {
+  'idea-inspiration': C.purple,
+  'idea-activity': C.pink,
+  'idea-company': C.cyan,
+  'IDEER': C.amber,
+}
+
+function computeDue(preset: string): string | null {
+  const d = new Date(); d.setHours(0,0,0,0)
+  if (preset === 'today') return d.toISOString().slice(0,10)
+  if (preset === 'tomorrow') { d.setDate(d.getDate()+1); return d.toISOString().slice(0,10) }
+  if (preset === 'next_week') { d.setDate(d.getDate()+((8-d.getDay())%7||7)); return d.toISOString().slice(0,10) }
   return null
 }
 
-// ─── App ───
+/* ━━━ App ━━━ */
 export default function App() {
   const { todos, loading, connected, addTodo, updateTodo, deleteTodo } = useTodos()
   const employees = useEmployees()
-  const shopping = useShopping()
+  const shop = useShopping()
+  const [addingTask, setAddingTask] = useState(false)
+  const [addingShop, setAddingShop] = useState(false)
 
-  const [showAddTodo, setShowAddTodo] = useState(false)
-  const [showAddShopping, setShowAddShopping] = useState(false)
-  const [overdueAck, setOverdueAck] = useState(false)
-
-  // Overdue items
-  const overdueItems = useMemo(() =>
-    todos.filter(t => !t.resolved && isOverdue(t.due_date)),
-  [todos])
-
-  // Split active todos
-  const { taskItems, ideaItems } = useMemo(() => {
-    const active = todos.filter(t => !t.resolved)
-    const taskItems: Todo[] = []
-    const ideaItems: Todo[] = []
-    for (const t of active) {
-      if (isIdeaCategory(t.category)) ideaItems.push(t)
-      else taskItems.push(t)
-    }
-    taskItems.sort((a, b) => {
-      const po = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
-      if (po !== 0) return po
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  const active = useMemo(() => todos.filter(t => !t.resolved), [todos])
+  const overdue = useMemo(() => active.filter(t => isOverdue(t.due_date)), [active])
+  const tasks = useMemo(() => {
+    const t = active.filter(t => !isIdeaCategory(t.category))
+    t.sort((a,b) => {
+      const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
+      return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     })
-    return { taskItems, ideaItems }
-  }, [todos])
+    return t
+  }, [active])
 
-  // Group ideas by category
   const ideaGroups = useMemo(() => {
-    const g = new Map<string, Todo[]>()
-    for (const t of ideaItems) {
-      const k = t.category || 'other'
-      if (!g.has(k)) g.set(k, [])
-      g.get(k)!.push(t)
-    }
-    return Array.from(g.entries())
-  }, [ideaItems])
+    const ideas = active.filter(t => isIdeaCategory(t.category))
+    const m = new Map<string, Todo[]>()
+    ideas.forEach(t => { const k = t.category || 'x'; m.set(k, [...(m.get(k)||[]), t]) })
+    return [...m.entries()]
+  }, [active])
 
-  const pendingShopping = shopping.items.filter(i => !i.purchased)
-  const purchasedShopping = shopping.items.filter(i => i.purchased)
+  const pendShop = shop.items.filter(i => !i.purchased)
+  const doneShop = shop.items.filter(i => i.purchased)
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-[var(--accent)] animate-spin" />
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{ height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <Loader2 style={{ width:32, height:32, color:C.blue }} className="animate-spin" />
+    </div>
+  )
 
   return (
-    <div className="h-full flex flex-col">
-      {/* ── Overdue Banner ── */}
-      {overdueItems.length > 0 && !overdueAck && (
-        <div className="shrink-0 bg-red-500/10 border-b-2 border-red-500/40 px-6 py-3 flex items-center gap-3 anim-shake">
-          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
-          <span className="text-sm font-semibold text-red-300">
-            {overdueItems.length} overskredet{overdueItems.length > 1 ? 'e' : ''} opgave{overdueItems.length > 1 ? 'r' : ''}!
-          </span>
-          <div className="flex gap-2 ml-2 flex-wrap">
-            {overdueItems.slice(0, 3).map(t => (
-              <span key={t.id} className="text-xs bg-red-500/20 text-red-300 px-2 py-0.5 rounded-md border border-red-500/30">
-                {decodeHtmlEntities(t.title).slice(0, 40)}
-              </span>
-            ))}
-            {overdueItems.length > 3 && (
-              <span className="text-xs text-red-400">+{overdueItems.length - 3} mere</span>
-            )}
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', background:C.bg }}>
+
+      {/* ── Overdue alert ── */}
+      {overdue.length > 0 && (
+        <div style={{ background:'rgba(240,96,96,0.07)', borderBottom:`1px solid rgba(240,96,96,0.2)`, padding:'10px 0' }}>
+          <div style={{ maxWidth:1200, margin:'0 auto', padding:'0 40px', display:'flex', alignItems:'center', gap:10 }}>
+            <AlertTriangle style={{ width:16, height:16, color:C.red, flexShrink:0 }} />
+            <span style={{ fontSize:13, fontWeight:600, color:C.red }}>
+              {overdue.length} overskredet{overdue.length > 1 ? 'e' : ''} opgave{overdue.length > 1 ? 'r' : ''}
+            </span>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginLeft:8 }}>
+              {overdue.slice(0,3).map(t => (
+                <span key={t.id} style={{ fontSize:11, background:'rgba(240,96,96,0.12)', color:'#fca5a5', padding:'2px 8px', borderRadius:6, border:'1px solid rgba(240,96,96,0.2)' }}>
+                  {decodeHtmlEntities(t.title).slice(0,35)}
+                </span>
+              ))}
+            </div>
           </div>
-          <button onClick={() => setOverdueAck(true)} className="ml-auto text-red-400 hover:text-red-300 cursor-pointer">
-            <X className="w-4 h-4" />
-          </button>
         </div>
       )}
 
       {/* ── Header ── */}
-      <header className="shrink-0 border-b border-[var(--border)] bg-[var(--bg-panel)]">
-        <div className="max-w-[1360px] mx-auto px-8 py-4 flex items-center justify-between">
+      <header style={{ borderBottom:`1px solid ${C.border}`, background:C.surface, flexShrink:0 }}>
+        <div style={{ maxWidth:1200, margin:'0 auto', padding:'20px 40px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>
-            <h1 className="text-xl font-bold tracking-tight">TeamBattle ToDo</h1>
-            <div className="flex items-center gap-4 mt-1">
-              <Stat label="Aktive" value={taskItems.length} />
-              <Stat label="Idéer" value={ideaItems.length} color="var(--purple)" />
-              <Stat label="Indkøb" value={pendingShopping.length} color="var(--green)" />
-              {overdueItems.length > 0 && <Stat label="Overdue" value={overdueItems.length} color="var(--red)" />}
-              <span className={`ml-2 w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400 animate-pulse'}`} />
+            <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:'-0.02em', color:C.text }}>TeamBattle Todo</h1>
+            <div style={{ display:'flex', alignItems:'center', gap:20, marginTop:6 }}>
+              <StatPill n={tasks.length} label="Opgaver" color={C.blue} />
+              <StatPill n={pendShop.length} label="Indkøb" color={C.green} />
+              <StatPill n={ideaGroups.reduce((s,[,v])=>s+v.length,0)} label="Idéer" color={C.purple} />
+              {overdue.length > 0 && <StatPill n={overdue.length} label="Overdue" color={C.red} />}
+              <div style={{ width:8, height:8, borderRadius:4, background: connected ? '#34d399' : C.red, marginLeft:4 }} />
             </div>
           </div>
-          <ClockWidget />
+          <LiveClock />
         </div>
       </header>
 
-      {/* ── Content ── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1360px] mx-auto px-8 py-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* ── 3-column grid ── */}
+      <div style={{ flex:1, overflow:'auto' }}>
+        <div style={{ maxWidth:1200, margin:'0 auto', padding:'28px 40px', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:24, alignItems:'start' }}>
 
-          {/* ═══ KOLONNE 1: OPGAVER ═══ */}
-          <Panel title="Opgaver" count={taskItems.length} accent="var(--blue)" onAdd={() => setShowAddTodo(true)}>
-            {showAddTodo && (
-              <AddTodoForm
-                employees={employees}
-                onSubmit={async (data) => { await addTodo(data); setShowAddTodo(false) }}
-                onCancel={() => setShowAddTodo(false)}
-              />
-            )}
-            {taskItems.length === 0 && !showAddTodo && (
-              <EmptyState icon={<Check className="w-6 h-6" />} text="Ingen aktive opgaver" />
-            )}
-            {taskItems.map(t => (
-              <TaskCard
-                key={t.id}
-                todo={t}
-                employee={t.assigned_to ? employees.get(t.assigned_to) : undefined}
-                onResolve={() => updateTodo(t.id, { resolved: true })}
-                onDelete={() => deleteTodo(t.id)}
-              />
-            ))}
-          </Panel>
+          {/* COL 1 — Tasks */}
+          <Column title="Opgaver" count={tasks.length} color={C.blue}
+            action={<AddBtn label="Ny opgave" onClick={() => setAddingTask(true)} />}>
+            {addingTask && <TaskForm employees={employees} onDone={async d => { await addTodo(d); setAddingTask(false) }} onCancel={() => setAddingTask(false)} />}
+            {tasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} />)}
+            {tasks.length === 0 && !addingTask && <Empty text="Ingen aktive opgaver" />}
+          </Column>
 
-          {/* ═══ KOLONNE 2: INDKØB ═══ */}
-          <Panel title="Indkøb" count={pendingShopping.length} accent="var(--green)" icon={<ShoppingCart className="w-4 h-4" />} onAdd={() => setShowAddShopping(true)}>
-            {showAddShopping && (
-              <AddShoppingForm
-                onSubmit={async (title, note, url) => { await shopping.addItem(title, note, url); setShowAddShopping(false) }}
-                onCancel={() => setShowAddShopping(false)}
-              />
+          {/* COL 2 — Shopping */}
+          <Column title="Indkøb" count={pendShop.length} color={C.green}
+            action={<AddBtn label="Tilføj" onClick={() => setAddingShop(true)} />}>
+            {addingShop && <ShopForm onDone={async (t,n,u) => { await shop.addItem(t,n,u); setAddingShop(false) }} onCancel={() => setAddingShop(false)} />}
+            {pendShop.map(i => <ShopCard key={i.id} item={i} onCheck={() => shop.togglePurchased(i.id, true)} onDel={() => shop.deleteItem(i.id)} />)}
+            {pendShop.length === 0 && !addingShop && <Empty text="Listen er tom" />}
+            {doneShop.length > 0 && (
+              <Collapse label={`Købt (${doneShop.length})`} open={false}>
+                {doneShop.map(i => <ShopCard key={i.id} item={i} done onCheck={() => shop.togglePurchased(i.id, false)} onDel={() => shop.deleteItem(i.id)} />)}
+              </Collapse>
             )}
-            {pendingShopping.length === 0 && !showAddShopping && (
-              <EmptyState icon={<ShoppingCart className="w-6 h-6" />} text="Ingen indkøb på listen" />
-            )}
-            {pendingShopping.map(item => (
-              <ShoppingCard
-                key={item.id}
-                item={item}
-                onToggle={() => shopping.togglePurchased(item.id, true)}
-                onDelete={() => shopping.deleteItem(item.id)}
-              />
-            ))}
-            {purchasedShopping.length > 0 && (
-              <CollapsibleSection title={`Købt (${purchasedShopping.length})`} defaultOpen={false} muted>
-                {purchasedShopping.map(item => (
-                  <ShoppingCard
-                    key={item.id}
-                    item={item}
-                    purchased
-                    onToggle={() => shopping.togglePurchased(item.id, false)}
-                    onDelete={() => shopping.deleteItem(item.id)}
-                  />
-                ))}
-              </CollapsibleSection>
-            )}
-          </Panel>
+          </Column>
 
-          {/* ═══ KOLONNE 3: IDÉER ═══ */}
-          <Panel title="Idéer & Inspiration" count={ideaItems.length} accent="var(--purple)" icon={<Lightbulb className="w-4 h-4" />}>
+          {/* COL 3 — Ideas */}
+          <Column title="Idéer & Inspiration" count={ideaGroups.reduce((s,[,v])=>s+v.length,0)} color={C.purple}>
             {ideaGroups.map(([cat, items]) => (
-              <CollapsibleSection
-                key={cat}
-                title={getCategoryLabel(cat)}
-                count={items.length}
-                color={CATEGORY_COLORS[cat] || '#60a5fa'}
-                defaultOpen={false}
-              >
-                {items.map(t => (
-                  <IdeaCard key={t.id} todo={t} employee={t.assigned_to ? employees.get(t.assigned_to) : undefined} />
-                ))}
-              </CollapsibleSection>
+              <Collapse key={cat} label={getCategoryLabel(cat)} count={items.length} color={CAT_COLORS[cat] || C.blue} open={false}>
+                {items.map(t => <IdeaRow key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} />)}
+              </Collapse>
             ))}
-            {ideaGroups.length === 0 && (
-              <EmptyState icon={<Lightbulb className="w-6 h-6" />} text="Ingen idéer endnu" />
-            )}
-          </Panel>
+            {ideaGroups.length === 0 && <Empty text="Ingen idéer" />}
+          </Column>
 
         </div>
       </div>
@@ -226,334 +172,315 @@ export default function App() {
   )
 }
 
-// ─── Stat pill ───
-function Stat({ label, value, color }: { label: string; value: number; color?: string }) {
+/* ━━━ Reusable components ━━━ */
+
+function StatPill({ n, label, color }: { n:number; label:string; color:string }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-lg font-bold" style={{ color: color || 'var(--text)' }}>{value}</span>
-      <span className="text-[11px] text-[var(--text-muted)] uppercase tracking-wider">{label}</span>
+    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+      <span style={{ fontSize:18, fontWeight:700, color }}>{n}</span>
+      <span style={{ fontSize:11, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.05em' }}>{label}</span>
     </div>
   )
 }
 
-// ─── Clock widget ───
-function ClockWidget() {
-  const [now, setNow] = useState(new Date())
-  useEffect(() => { const i = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(i) }, [])
+function LiveClock() {
+  const [n, sN] = useState(new Date())
+  useEffect(() => { const i = setInterval(() => sN(new Date()), 1000); return () => clearInterval(i) }, [])
   return (
-    <div className="text-right">
-      <div className="text-2xl font-light tracking-wide">{now.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' })}</div>
-      <div className="text-[11px] text-[var(--text-muted)] capitalize">{now.toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+    <div style={{ textAlign:'right' }}>
+      <div style={{ fontSize:28, fontWeight:300, letterSpacing:'0.02em', color:C.text }}>{n.toLocaleTimeString('da-DK',{hour:'2-digit',minute:'2-digit'})}</div>
+      <div style={{ fontSize:11, color:C.textMuted, textTransform:'capitalize' }}>{n.toLocaleDateString('da-DK',{weekday:'long',day:'numeric',month:'long'})}</div>
     </div>
   )
 }
 
-// ─── Panel container ───
-function Panel({ title, count, accent, icon, onAdd, children }: {
-  title: string; count: number; accent: string; icon?: React.ReactNode; onAdd?: () => void; children: React.ReactNode
-}) {
+function Column({ title, count, color, action, children }: { title:string; count:number; color:string; action?:ReactNode; children:ReactNode }) {
   return (
-    <div className="rounded-2xl border-2 bg-[var(--bg-panel)] overflow-hidden flex flex-col" style={{ borderColor: `${accent}40` }}>
-      <div className="px-5 py-3.5 flex items-center gap-2.5 border-b" style={{ borderColor: `${accent}25`, background: `${accent}08` }}>
-        {icon && <span style={{ color: accent }}>{icon}</span>}
-        <h2 className="text-sm font-bold uppercase tracking-wider" style={{ color: accent }}>{title}</h2>
-        <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: `${accent}20`, color: accent }}>{count}</span>
-        {onAdd && (
-          <button onClick={onAdd} className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-colors" style={{ background: `${accent}15`, color: accent, border: `1px solid ${accent}30` }}>
-            <Plus className="w-3.5 h-3.5" /> Tilføj
-          </button>
-        )}
+    <div style={{ background:C.surface, borderRadius:16, border:`1px solid ${C.border}`, overflow:'hidden' }}>
+      {/* Header */}
+      <div style={{ padding:'16px 20px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:10 }}>
+        <div style={{ width:4, height:20, borderRadius:2, background:color }} />
+        <span style={{ fontSize:13, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.04em' }}>{title}</span>
+        <span style={{ fontSize:11, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 8px', borderRadius:10 }}>{count}</span>
+        {action && <div style={{ marginLeft:'auto' }}>{action}</div>}
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+      {/* Body */}
+      <div style={{ padding:16, display:'flex', flexDirection:'column', gap:8, maxHeight:'calc(100vh - 220px)', overflowY:'auto' }}>
         {children}
       </div>
     </div>
   )
 }
 
-// ─── Collapsible section ───
-function CollapsibleSection({ title, count, color, defaultOpen = true, muted, children }: {
-  title: string; count?: number; color?: string; defaultOpen?: boolean; muted?: boolean; children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen)
+function AddBtn({ label, onClick }: { label:string; onClick:()=>void }) {
   return (
-    <div className={`rounded-xl border overflow-hidden ${muted ? 'opacity-60' : ''}`} style={{ borderColor: color ? `${color}35` : 'var(--border)' }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3.5 py-2.5 cursor-pointer text-left transition-colors hover:bg-[var(--bg-card)]"
-        style={{ background: color ? `${color}08` : 'transparent' }}
-      >
-        {open ? <ChevronDown className="w-3.5 h-3.5" style={{ color: color || 'var(--text-muted)' }} /> : <ChevronRight className="w-3.5 h-3.5" style={{ color: color || 'var(--text-muted)' }} />}
-        {color && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />}
-        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: color || 'var(--text-dim)' }}>{title}</span>
-        {count !== undefined && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-auto" style={{ background: color ? `${color}20` : 'var(--bg-card)', color: color || 'var(--text-muted)' }}>{count}</span>}
+    <button onClick={onClick} style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 12px', borderRadius:8, fontSize:12, fontWeight:600, color:C.textSec, background:C.card, border:`1px solid ${C.border}`, cursor:'pointer', transition:'all 0.15s' }}
+      onMouseEnter={e => { e.currentTarget.style.background = C.cardHover; e.currentTarget.style.color = C.text }}
+      onMouseLeave={e => { e.currentTarget.style.background = C.card; e.currentTarget.style.color = C.textSec }}>
+      <Plus style={{ width:14, height:14 }} /> {label}
+    </button>
+  )
+}
+
+function Empty({ text }: { text:string }) {
+  return <div style={{ textAlign:'center', padding:'32px 0', fontSize:13, color:C.textMuted }}>{text}</div>
+}
+
+function Collapse({ label, count, color, open: initOpen, children }: { label:string; count?:number; color?:string; open:boolean; children:ReactNode }) {
+  const [open, setOpen] = useState(initOpen)
+  return (
+    <div style={{ borderRadius:10, border:`1px solid ${color ? color+'30' : C.border}`, overflow:'hidden' }}>
+      <button onClick={() => setOpen(o=>!o)} style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'10px 14px', background: color ? color+'08' : 'transparent', border:'none', cursor:'pointer', color: color || C.textSec, fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.04em', textAlign:'left' }}>
+        {open ? <ChevronDown style={{ width:14, height:14 }} /> : <ChevronRight style={{ width:14, height:14 }} />}
+        {color && <div style={{ width:7, height:7, borderRadius:4, background:color, flexShrink:0 }} />}
+        {label}
+        {count !== undefined && <span style={{ fontSize:10, fontWeight:700, marginLeft:'auto', padding:'1px 7px', borderRadius:8, background: color ? color+'18' : C.card, color: color || C.textMuted }}>{count}</span>}
       </button>
-      {open && <div className="p-3 pt-1 space-y-2">{children}</div>}
+      {open && <div style={{ padding:'8px 12px 12px', display:'flex', flexDirection:'column', gap:6 }}>{children}</div>}
     </div>
   )
 }
 
-// ─── Empty state ───
-function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
+function Avatar({ name, id, sz=26 }: { name:string; id:string; sz?:number }) {
   return (
-    <div className="flex flex-col items-center justify-center py-10 text-[var(--text-muted)] opacity-50">
-      {icon}
-      <p className="text-xs mt-2">{text}</p>
+    <div style={{ width:sz, height:sz, borderRadius:sz, background:hashColor(id), display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:sz*0.38, fontWeight:600, flexShrink:0 }} title={name}>
+      {getInitials(name)}
     </div>
   )
 }
 
-// ─── Avatar ───
-function Avatar({ name, id, size = 28 }: { name: string; id: string; size?: number }) {
-  return (
-    <div className="rounded-full flex items-center justify-center text-white font-semibold shrink-0"
-      style={{ width: size, height: size, fontSize: size * 0.38, background: hashColor(id) }}
-      title={name}
-    >{getInitials(name)}</div>
-  )
-}
-
-// ─── Due date badge ───
-function DueBadge({ date }: { date: string | null }) {
+function DuePill({ date }: { date:string|null }) {
   if (!date) return null
-  const overdue = isOverdue(date)
-  const d = new Date(date); d.setHours(0, 0, 0, 0)
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+  const od = isOverdue(date)
+  const d = new Date(date); d.setHours(0,0,0,0)
+  const today = new Date(); today.setHours(0,0,0,0)
+  const tmrw = new Date(today); tmrw.setDate(tmrw.getDate()+1)
+  const lbl = d.getTime()===today.getTime() ? 'I dag' : d.getTime()===tmrw.getTime() ? 'I morgen' : d.toLocaleDateString('da-DK',{day:'numeric',month:'short'})
 
-  let label: string
-  if (d.getTime() === today.getTime()) label = 'I dag'
-  else if (d.getTime() === tomorrow.getTime()) label = 'I morgen'
-  else label = d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' })
+  const bg = od ? 'rgba(240,96,96,0.12)' : d.getTime()===today.getTime() ? 'rgba(245,166,35,0.1)' : C.card
+  const fg = od ? '#fca5a5' : d.getTime()===today.getTime() ? C.amber : C.textMuted
+  const bdr = od ? 'rgba(240,96,96,0.25)' : 'transparent'
 
-  if (overdue) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/30 anim-pulse-border">
-        <Clock className="w-3 h-3" /> Overskredet - {label}
-      </span>
-    )
-  }
-
-  const isToday = d.getTime() === today.getTime()
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium ${isToday ? 'bg-amber-500/15 text-amber-400 border border-amber-500/25' : 'bg-[var(--bg-card)] text-[var(--text-muted)] border border-[var(--border)]'}`}>
-      <Calendar className="w-3 h-3" /> {label}
+    <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:10, fontWeight:500, padding:'2px 7px', borderRadius:5, background:bg, color:fg, border:`1px solid ${bdr}` }}>
+      <Calendar style={{ width:10, height:10 }} />
+      {od ? `Overskredet - ${lbl}` : lbl}
     </span>
   )
 }
 
-// ─── Task card ───
-function TaskCard({ todo, employee, onResolve, onDelete }: {
-  todo: Todo; employee?: Employee; onResolve: () => void; onDelete: () => void
-}) {
-  const overdue = isOverdue(todo.due_date)
-  const color = getPriorityColor(todo.priority)
-  const title = decodeHtmlEntities(todo.title)
-  const parsed = parseDescription(todo.description)
+/* ━━━ Task Card ━━━ */
+function TaskCard({ t, emp, onDone, onDel }: { t:Todo; emp?:Employee; onDone:()=>void; onDel:()=>void }) {
+  const od = isOverdue(t.due_date)
+  const pc = getPriorityColor(t.priority)
+  const title = decodeHtmlEntities(t.title)
+  const desc = parseDescription(t.description)
 
   return (
-    <div className={`rounded-xl border-l-[3px] border bg-[var(--bg-card)] transition-all duration-150 hover:bg-[var(--bg-card-hover)] anim-slide-up ${overdue ? 'border-red-500/30 bg-red-500/[0.03]' : 'border-[var(--border)]'}`} style={{ borderLeftColor: color }}>
-      <div className="p-3.5">
-        {/* Header */}
-        <div className="flex items-start gap-2.5">
-          <button onClick={onResolve} className="mt-0.5 w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center hover:bg-green-500/20 hover:border-green-500 transition-all cursor-pointer" style={{ borderColor: `${color}50` }}>
-          </button>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold leading-snug line-clamp-2">
-              {todo.is_error && <AlertTriangle className="inline w-3.5 h-3.5 mr-1 text-amber-400 -mt-0.5" />}
-              {title}
-            </h3>
-            {parsed.text && <p className="text-xs text-[var(--text-dim)] line-clamp-2 mt-1 leading-relaxed">{parsed.text}</p>}
+    <div style={{
+      background: od ? 'rgba(240,96,96,0.04)' : C.card,
+      borderRadius:10,
+      border: `1px solid ${od ? 'rgba(240,96,96,0.18)' : C.border}`,
+      borderLeft: `3px solid ${pc}`,
+      padding:'14px 16px',
+      transition:'background 0.15s',
+      cursor:'default',
+    }}
+      onMouseEnter={e => { if(!od) e.currentTarget.style.background = C.cardHover }}
+      onMouseLeave={e => { e.currentTarget.style.background = od ? 'rgba(240,96,96,0.04)' : C.card }}>
+
+      <div style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
+        {/* Checkbox */}
+        <button onClick={onDone} style={{
+          width:20, height:20, borderRadius:6, border:`2px solid ${pc}50`, background:'transparent',
+          display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, marginTop:1,
+          transition:'all 0.15s',
+        }}
+          onMouseEnter={e => { e.currentTarget.style.background = pc+'20'; e.currentTarget.style.borderColor = pc }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = pc+'50' }}>
+          <Check style={{ width:12, height:12, color:pc, opacity:0 }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '0'} />
+        </button>
+
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:14, fontWeight:600, lineHeight:1.4, color:C.text }}>{title}</div>
+          {desc.text && <div style={{ fontSize:12, color:C.textSec, marginTop:3, lineHeight:1.5, overflow:'hidden', textOverflow:'ellipsis', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' }}>{desc.text}</div>}
+
+          <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginTop:8 }}>
+            <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:5, background:pc+'14', color:pc }}>{getPriorityLabel(t.priority)}</span>
+            <DuePill date={t.due_date} />
+            {(t.geo_address || t.location) && (
+              <span style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:10, color:C.textMuted }}><MapPin style={{ width:10, height:10 }} />{t.geo_address || t.location}</span>
+            )}
+            {emp && <span style={{ fontSize:10, color:C.textMuted, marginLeft:'auto' }}>{emp.navn}</span>}
+            <button onClick={onDel} style={{ padding:3, borderRadius:4, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.3, transition:'all 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = C.red }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '0.3'; e.currentTarget.style.color = C.textMuted }}>
+              <Trash2 style={{ width:12, height:12 }} />
+            </button>
           </div>
-          {employee && <Avatar name={employee.navn} id={employee.id} />}
         </div>
 
-        {/* Meta */}
-        <div className="flex items-center gap-2 flex-wrap mt-2.5 ml-7">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold" style={{ background: `${color}15`, color, border: `1px solid ${color}30` }}>
-            <Flag className="w-3 h-3" /> {getPriorityLabel(todo.priority)}
-          </span>
-          <DueBadge date={todo.due_date} />
-          {(todo.geo_address || todo.location) && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
-              <MapPin className="w-3 h-3" /> {todo.geo_address || todo.location}
-            </span>
-          )}
-          {employee && (
-            <span className="text-[10px] text-[var(--text-muted)] ml-auto">{employee.navn}</span>
-          )}
-          <button onClick={onDelete} className="p-1 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer opacity-30 hover:opacity-100">
-            <Trash2 className="w-3 h-3" />
-          </button>
-        </div>
+        {emp && <Avatar name={emp.navn} id={emp.id} />}
       </div>
     </div>
   )
 }
 
-// ─── Idea card ───
-function IdeaCard({ todo, employee }: { todo: Todo; employee?: Employee }) {
-  const title = decodeHtmlEntities(todo.title)
-  const parsed = parseDescription(todo.description)
-  const [imgErr, setImgErr] = useState(false)
+/* ━━━ Idea Row ━━━ */
+function IdeaRow({ t, emp }: { t:Todo; emp?:Employee }) {
+  const title = decodeHtmlEntities(t.title)
+  const desc = parseDescription(t.description)
+  const [ie, sIe] = useState(false)
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-card)] overflow-hidden hover:bg-[var(--bg-card-hover)] transition-all anim-slide-up flex">
-      {parsed.image && !imgErr ? (
-        <div className="w-20 h-20 shrink-0 bg-[var(--bg-input)]">
-          <img src={parsed.image} alt="" className="w-full h-full object-cover" onError={() => setImgErr(true)} />
+    <div style={{ display:'flex', borderRadius:8, border:`1px solid ${C.border}`, background:C.card, overflow:'hidden', transition:'background 0.15s' }}
+      onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+      onMouseLeave={e => e.currentTarget.style.background = C.card}>
+      {desc.image && !ie ? (
+        <div style={{ width:64, height:64, flexShrink:0, background:C.input }}>
+          <img src={desc.image} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} onError={() => sIe(true)} />
         </div>
       ) : (
-        <div className="w-20 h-20 shrink-0 bg-[var(--bg-input)] flex items-center justify-center">
-          <Lightbulb className="w-6 h-6 text-[var(--text-muted)] opacity-30" />
+        <div style={{ width:64, height:64, flexShrink:0, background:C.input, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <Lightbulb style={{ width:20, height:20, color:C.textMuted, opacity:0.3 }} />
         </div>
       )}
-      <div className="flex-1 p-3 min-w-0">
-        <div className="flex items-start gap-2">
-          <h3 className="text-xs font-semibold leading-snug line-clamp-2 flex-1">{title}</h3>
-          {employee && <Avatar name={employee.navn} id={employee.id} size={22} />}
+      <div style={{ flex:1, padding:'8px 12px', minWidth:0 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontSize:12, fontWeight:600, color:C.text, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{title}</span>
+          {emp && <Avatar name={emp.navn} id={emp.id} sz={20} />}
         </div>
-        {parsed.text && <p className="text-[10px] text-[var(--text-dim)] line-clamp-1 mt-0.5">{parsed.text}</p>}
-        <div className="flex items-center gap-1.5 mt-1.5">
-          {parsed.tags?.slice(0, 3).map((tag, i) => (
-            <span key={i} className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20">{tag}</span>
+        {desc.text && <div style={{ fontSize:10, color:C.textSec, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{desc.text}</div>}
+        <div style={{ display:'flex', gap:4, marginTop:4 }}>
+          {desc.tags?.slice(0,3).map((tag,i) => (
+            <span key={i} style={{ fontSize:9, fontWeight:500, padding:'1px 5px', borderRadius:4, background:C.purple+'14', color:C.purple }}>{tag}</span>
           ))}
-          {parsed.url && <span className="inline-flex items-center gap-0.5 text-[9px] text-[var(--text-muted)]"><ExternalLink className="w-2.5 h-2.5" />Link</span>}
+          {desc.url && <span style={{ fontSize:9, color:C.textMuted, display:'inline-flex', alignItems:'center', gap:2 }}><ExternalLink style={{ width:8, height:8 }} />Link</span>}
         </div>
       </div>
     </div>
   )
 }
 
-// ─── Shopping card ───
-function ShoppingCard({ item, purchased, onToggle, onDelete }: {
-  item: ShoppingItem; purchased?: boolean; onToggle: () => void; onDelete: () => void
-}) {
+/* ━━━ Shop Card ━━━ */
+function ShopCard({ item, done, onCheck, onDel }: { item:ShoppingItem; done?:boolean; onCheck:()=>void; onDel:()=>void }) {
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${purchased ? 'border-[var(--border)] opacity-50' : 'border-green-500/20 bg-[var(--bg-card)] hover:border-green-500/40'}`}>
-      <button onClick={onToggle} className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition-all cursor-pointer ${purchased ? 'bg-green-500 border-green-500' : 'border-green-500/40 hover:border-green-500'}`}>
-        {purchased && <Check className="w-3 h-3 text-white" />}
+    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:8, background: done ? 'transparent' : C.card, border:`1px solid ${done ? C.border : C.green+'25'}`, opacity: done ? 0.45 : 1, transition:'all 0.15s' }}>
+      <button onClick={onCheck} style={{ width:18, height:18, borderRadius:5, border:`2px solid ${done ? C.green : C.green+'60'}`, background: done ? C.green : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, transition:'all 0.15s' }}
+        onMouseEnter={e => { if(!done) { e.currentTarget.style.borderColor = C.green; e.currentTarget.style.background = C.green+'20' } }}
+        onMouseLeave={e => { if(!done) { e.currentTarget.style.borderColor = C.green+'60'; e.currentTarget.style.background = 'transparent' } }}>
+        {done && <Check style={{ width:11, height:11, color:'#fff' }} />}
       </button>
-      <div className="flex-1 min-w-0">
-        <span className={`text-sm font-medium ${purchased ? 'line-through text-[var(--text-muted)]' : ''}`}>{item.title}</span>
-        {item.note && <p className="text-[10px] text-[var(--text-muted)] line-clamp-1">{item.note}</p>}
+      <div style={{ flex:1, minWidth:0 }}>
+        <span style={{ fontSize:13, fontWeight:500, textDecoration: done ? 'line-through' : 'none', color: done ? C.textMuted : C.text }}>{item.title}</span>
+        {item.note && <div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{item.note}</div>}
       </div>
-      {item.url && (
-        <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[var(--text-muted)] hover:text-green-400 transition-colors" onClick={e => e.stopPropagation()}>
-          <ExternalLink className="w-3.5 h-3.5" />
-        </a>
-      )}
-      <button onClick={onDelete} className="p-1 text-[var(--text-muted)] hover:text-red-400 transition-colors cursor-pointer opacity-30 hover:opacity-100">
-        <Trash2 className="w-3 h-3" />
+      {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color:C.textMuted, transition:'color 0.15s' }} onClick={e=>e.stopPropagation()} onMouseEnter={e=>e.currentTarget.style.color=C.green} onMouseLeave={e=>e.currentTarget.style.color=C.textMuted}><ExternalLink style={{ width:13, height:13 }} /></a>}
+      <button onClick={onDel} style={{ padding:2, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.25, transition:'all 0.15s' }}
+        onMouseEnter={e => { e.currentTarget.style.opacity='1'; e.currentTarget.style.color=C.red }}
+        onMouseLeave={e => { e.currentTarget.style.opacity='0.25'; e.currentTarget.style.color=C.textMuted }}>
+        <Trash2 style={{ width:11, height:11 }} />
       </button>
     </div>
   )
 }
 
-// ─── Add Todo form ───
-function AddTodoForm({ employees, onSubmit, onCancel }: {
-  employees: Map<string, Employee>; onSubmit: (data: Partial<Todo>) => Promise<any>; onCancel: () => void
-}) {
-  const [title, setTitle] = useState('')
-  const [priority, setPriority] = useState('Normal')
-  const [duePreset, setDuePreset] = useState('')
-  const [customDate, setCustomDate] = useState('')
-  const [assignedTo, setAssignedTo] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const ref = useRef<HTMLInputElement>(null)
+/* ━━━ Forms ━━━ */
+const inputStyle: React.CSSProperties = { width:'100%', padding:'9px 12px', borderRadius:8, border:`1px solid ${C.border}`, background:C.input, color:C.text, fontSize:13, outline:'none', fontFamily:'inherit', transition:'border-color 0.15s' }
+const inputFocus = (e: React.FocusEvent<HTMLInputElement|HTMLSelectElement>) => e.currentTarget.style.borderColor = C.blue
+const inputBlur = (e: React.FocusEvent<HTMLInputElement|HTMLSelectElement>) => e.currentTarget.style.borderColor = C.border
 
+function TaskForm({ employees, onDone, onCancel }: { employees:Map<string,Employee>; onDone:(d:Partial<Todo>)=>Promise<any>; onCancel:()=>void }) {
+  const [title, sT] = useState('')
+  const [pri, sP] = useState('Normal')
+  const [due, sD] = useState('')
+  const [cDate, sCD] = useState('')
+  const [assign, sA] = useState('')
+  const [busy, sB] = useState(false)
+  const ref = useRef<HTMLInputElement>(null)
   useEffect(() => { ref.current?.focus() }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim() || submitting) return
-    setSubmitting(true)
-    const dueDate = customDate || computeDueDate(duePreset)
-    await onSubmit({ title: title.trim(), priority, due_date: dueDate, assigned_to: assignedTo || null })
-    setSubmitting(false)
+    if (!title.trim() || busy) return
+    sB(true)
+    await onDone({ title: title.trim(), priority: pri, due_date: cDate || computeDue(due), assigned_to: assign || null })
+    sB(false)
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-xl border-2 border-blue-500/30 bg-blue-500/[0.04] p-4 space-y-3 anim-slide-up">
-      <input ref={ref} type="text" placeholder="Opgavetitel..." value={title} onChange={e => setTitle(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border)] text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-blue-500/50" />
+    <form onSubmit={submit} style={{ background:C.card, borderRadius:10, border:`1px solid ${C.blue}30`, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
+      <input ref={ref} placeholder="Opgavetitel..." value={title} onChange={e=>sT(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
 
-      {/* Prioritet */}
-      <div className="flex gap-1.5 flex-wrap">
+      <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
         {PRIORITIES.map(p => (
-          <button key={p.value} type="button" onClick={() => setPriority(p.value)}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition-all border ${priority === p.value ? 'ring-2 ring-offset-1 ring-offset-[var(--bg-panel)]' : 'opacity-50 hover:opacity-80'}`}
-            style={{ background: `${p.color}18`, color: p.color, borderColor: `${p.color}40`, ...(priority === p.value ? { ringColor: p.color } : {}) }}
-          >{p.label}</button>
+          <button key={p.value} type="button" onClick={() => sP(p.value)} style={{
+            padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:`1px solid ${p.color}40`,
+            background: pri===p.value ? p.color+'20' : 'transparent', color: pri===p.value ? p.color : C.textMuted,
+            transition:'all 0.15s',
+          }}>{p.label}</button>
         ))}
       </div>
 
-      {/* Due date presets */}
-      <div className="flex gap-1.5 flex-wrap">
-        {DUE_PRESETS.map(d => (
-          <button key={d.value} type="button" onClick={() => { setDuePreset(d.value); setCustomDate('') }}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer transition-all border border-[var(--border)] ${duePreset === d.value ? 'bg-[var(--accent)]/15 text-[var(--accent)] border-[var(--accent)]/40' : 'text-[var(--text-dim)] hover:text-[var(--text)]'}`}
-          >{d.label}</button>
+      <div style={{ display:'flex', gap:5, flexWrap:'wrap', alignItems:'center' }}>
+        {['today','tomorrow','next_week'].map(d => (
+          <button key={d} type="button" onClick={() => { sD(d); sCD('') }} style={{
+            padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:500, cursor:'pointer',
+            border:`1px solid ${due===d ? C.blue+'40' : C.border}`,
+            background: due===d ? C.blue+'12' : 'transparent',
+            color: due===d ? C.blue : C.textMuted,
+            transition:'all 0.15s',
+          }}>{d==='today'?'I dag':d==='tomorrow'?'I morgen':'Næste uge'}</button>
         ))}
-        <input type="date" value={customDate} onChange={e => { setCustomDate(e.target.value); setDuePreset('') }}
-          className="px-2 py-1 rounded-lg text-[11px] bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-dim)] focus:outline-none" />
+        <input type="date" value={cDate} onChange={e => { sCD(e.target.value); sD('') }}
+          style={{ ...inputStyle, width:'auto', padding:'4px 8px', fontSize:11 }} onFocus={inputFocus} onBlur={inputBlur} />
       </div>
 
-      {/* Assigned to */}
-      <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border)] text-sm text-[var(--text-dim)] focus:outline-none">
+      <select value={assign} onChange={e => sA(e.target.value)} style={{ ...inputStyle, color: assign ? C.text : C.textMuted }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
         <option value="">Tildel medarbejder...</option>
-        {Array.from(employees.values()).sort((a, b) => a.navn.localeCompare(b.navn)).map(e => (
+        {[...employees.values()].sort((a,b) => a.navn.localeCompare(b.navn)).map(e => (
           <option key={e.id} value={e.id}>{e.navn} ({e.location})</option>
         ))}
       </select>
 
-      {/* Actions */}
-      <div className="flex gap-2">
-        <button type="submit" disabled={!title.trim() || submitting}
-          className="px-4 py-1.5 rounded-lg text-xs font-bold bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-30 transition-colors cursor-pointer">
-          {submitting ? 'Opretter...' : 'Opret opgave'}
+      <div style={{ display:'flex', gap:8, marginTop:2 }}>
+        <button type="submit" disabled={!title.trim()||busy} style={{ padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:700, background:C.blue, color:'#fff', border:'none', cursor:'pointer', opacity: (!title.trim()||busy) ? 0.35 : 1, transition:'opacity 0.15s' }}>
+          {busy ? 'Opretter...' : 'Opret opgave'}
         </button>
-        <button type="button" onClick={onCancel} className="px-4 py-1.5 rounded-lg text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer">Annuller</button>
+        <button type="button" onClick={onCancel} style={{ padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:500, background:'transparent', color:C.textMuted, border:'none', cursor:'pointer' }}>Annuller</button>
       </div>
     </form>
   )
 }
 
-// ─── Add Shopping form ───
-function AddShoppingForm({ onSubmit, onCancel }: {
-  onSubmit: (title: string, note?: string, url?: string) => Promise<any>; onCancel: () => void
-}) {
-  const [title, setTitle] = useState('')
-  const [note, setNote] = useState('')
-  const [url, setUrl] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+function ShopForm({ onDone, onCancel }: { onDone:(t:string,n?:string,u?:string)=>Promise<any>; onCancel:()=>void }) {
+  const [title, sT] = useState('')
+  const [note, sN] = useState('')
+  const [url, sU] = useState('')
+  const [busy, sB] = useState(false)
   const ref = useRef<HTMLInputElement>(null)
-
   useEffect(() => { ref.current?.focus() }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!title.trim() || submitting) return
-    setSubmitting(true)
-    await onSubmit(title.trim(), note.trim() || undefined, url.trim() || undefined)
-    setSubmitting(false)
+    if (!title.trim()||busy) return
+    sB(true)
+    await onDone(title.trim(), note.trim()||undefined, url.trim()||undefined)
+    sB(false)
   }
 
   return (
-    <form onSubmit={handleSubmit} className="rounded-xl border-2 border-green-500/30 bg-green-500/[0.04] p-4 space-y-2.5 anim-slide-up">
-      <input ref={ref} type="text" placeholder="Hvad skal købes?" value={title} onChange={e => setTitle(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border)] text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-green-500/50" />
-      <input type="text" placeholder="Note (valgfrit)" value={note} onChange={e => setNote(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border)] text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none" />
-      <input type="url" placeholder="Link (valgfrit)" value={url} onChange={e => setUrl(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border)] text-sm text-[var(--text)] placeholder:text-[var(--text-muted)] focus:outline-none" />
-      <div className="flex gap-2">
-        <button type="submit" disabled={!title.trim() || submitting}
-          className="px-4 py-1.5 rounded-lg text-xs font-bold bg-green-500 text-white hover:bg-green-600 disabled:opacity-30 transition-colors cursor-pointer">
-          {submitting ? 'Tilføjer...' : 'Tilføj'}
+    <form onSubmit={submit} style={{ background:C.card, borderRadius:10, border:`1px solid ${C.green}30`, padding:16, display:'flex', flexDirection:'column', gap:8 }}>
+      <input ref={ref} placeholder="Hvad skal købes?" value={title} onChange={e=>sT(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
+      <input placeholder="Note (valgfrit)" value={note} onChange={e=>sN(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
+      <input placeholder="Link (valgfrit)" value={url} onChange={e=>sU(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
+      <div style={{ display:'flex', gap:8, marginTop:2 }}>
+        <button type="submit" disabled={!title.trim()||busy} style={{ padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:700, background:C.green, color:'#fff', border:'none', cursor:'pointer', opacity: (!title.trim()||busy) ? 0.35 : 1 }}>
+          {busy ? 'Tilføjer...' : 'Tilføj'}
         </button>
-        <button type="button" onClick={onCancel} className="px-4 py-1.5 rounded-lg text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors cursor-pointer">Annuller</button>
+        <button type="button" onClick={onCancel} style={{ padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:500, background:'transparent', color:C.textMuted, border:'none', cursor:'pointer' }}>Annuller</button>
       </div>
     </form>
   )
