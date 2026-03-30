@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import type { Todo, Employee } from '../lib/types'
+import type { Todo, Employee, ShoppingItem } from '../lib/types'
 import { getPriorityOrder, getPriorityColor, isIdeaCategory, getCategoryLabel } from '../lib/utils'
 import { useAutoScroll } from '../hooks/useAutoScroll'
 import StatsBar from './StatsBar'
@@ -8,18 +8,27 @@ import ConnectionStatus from './ConnectionStatus'
 import TodoGroup from './TodoGroup'
 import TodoCard from './TodoCard'
 import IdeaCard from './IdeaCard'
+import ShoppingColumn from './ShoppingColumn'
 import { Loader2 } from 'lucide-react'
 
 // Unikke farver til hver idé-kategori
 const CATEGORY_COLORS: Record<string, string> = {
-  'idea-inspiration': '#a78bfa', // lilla
-  'idea-activity':    '#f472b6', // pink
-  'idea-company':     '#38bdf8', // lyseblå
-  'IDEER':            '#fbbf24', // gul
+  'idea-inspiration': '#a78bfa',
+  'idea-activity':    '#f472b6',
+  'idea-company':     '#38bdf8',
+  'IDEER':            '#fbbf24',
 }
 
 function getCategoryColor(category: string): string {
   return CATEGORY_COLORS[category] || '#60a5fa'
+}
+
+interface ShoppingHook {
+  items: ShoppingItem[]
+  loading: boolean
+  addItem: (title: string, note?: string, url?: string) => Promise<any>
+  togglePurchased: (id: string, purchased: boolean) => Promise<void>
+  deleteItem: (id: string) => Promise<void>
 }
 
 interface Props {
@@ -27,9 +36,10 @@ interface Props {
   employees: Map<string, Employee>
   loading: boolean
   connected: boolean
+  shopping: ShoppingHook
 }
 
-export default function Dashboard({ todos, employees, loading, connected }: Props) {
+export default function Dashboard({ todos, employees, loading, connected, shopping }: Props) {
   const scrollRef = useAutoScroll(true, 0.4)
 
   const { tasks, ideas } = useMemo(() => {
@@ -89,7 +99,7 @@ export default function Dashboard({ todos, employees, loading, connected }: Prop
     <div className="h-full flex flex-col">
       {/* Top bar */}
       <header className="shrink-0 border-b border-[var(--border)] bg-[var(--bg-secondary)]">
-        <div className="max-w-[1100px] mx-auto px-10 py-4">
+        <div className="max-w-[1400px] mx-auto px-10 py-4">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-lg font-bold text-[var(--text-primary)] tracking-tight">
@@ -104,11 +114,12 @@ export default function Dashboard({ todos, employees, loading, connected }: Prop
         </div>
       </header>
 
-      {/* Scrollable content — centreret med god margin */}
+      {/* Scrollable content — 3 kolonner */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
-        <div className="max-w-[1100px] mx-auto px-10 py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-            {/* Venstre kolonne: Opgaver */}
+        <div className="max-w-[1400px] mx-auto px-10 py-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+            {/* Kolonne 1: Opgaver */}
             <div>
               <div className="flex items-center gap-2 mb-5 pb-2 border-b border-[var(--border)]">
                 <span className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-widest">
@@ -141,7 +152,18 @@ export default function Dashboard({ todos, employees, loading, connected }: Prop
               )}
             </div>
 
-            {/* Højre kolonne: Idéer */}
+            {/* Kolonne 2: Indkøb */}
+            <div>
+              <ShoppingColumn
+                items={shopping.items}
+                loading={shopping.loading}
+                onAdd={shopping.addItem}
+                onToggle={shopping.togglePurchased}
+                onDelete={shopping.deleteItem}
+              />
+            </div>
+
+            {/* Kolonne 3: Idéer — auto-collapsed */}
             <div>
               <div className="flex items-center gap-2 mb-5 pb-2 border-b border-[var(--border)]">
                 <span className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-widest">
@@ -161,6 +183,7 @@ export default function Dashboard({ todos, employees, loading, connected }: Prop
                     title={getCategoryLabel(category)}
                     count={items.length}
                     color={getCategoryColor(category)}
+                    defaultOpen={false}
                   >
                     {items.map(todo => (
                       <IdeaCard
@@ -173,6 +196,7 @@ export default function Dashboard({ todos, employees, loading, connected }: Prop
                 ))
               )}
             </div>
+
           </div>
         </div>
       </div>

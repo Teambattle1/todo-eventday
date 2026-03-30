@@ -34,3 +34,16 @@ export interface ParsedDescription {
   images?: string[]
   tags?: string[]
 }
+
+export interface ShoppingItem {
+  id: string
+  title: string
+  note: string | null
+  quantity: number
+  url: string | null
+  priority: string
+  purchased: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
