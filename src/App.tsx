@@ -77,7 +77,7 @@ export default function App() {
   }, [active])
 
   const ideaGroups = useMemo(() => {
-    const ideas = active.filter(t => isIdeaCategory(t.category))
+    const ideas = active.filter(t => isIdeaCategory(t.category) && t.category !== 'idea-company')
     const m = new Map<string, Todo[]>()
     ideas.forEach(t => { const k = t.category || 'x'; m.set(k, [...(m.get(k)||[]), t]) })
     return [...m.entries()]
@@ -394,6 +394,7 @@ const inputBlur = (e: React.FocusEvent<HTMLInputElement|HTMLSelectElement>) => e
 
 function TaskForm({ employees, onDone, onCancel }: { employees:Map<string,Employee>; onDone:(d:Partial<Todo>)=>Promise<any>; onCancel:()=>void }) {
   const [title, sT] = useState('')
+  const [desc, sDe] = useState('')
   const [pri, sP] = useState('Normal')
   const [due, sD] = useState('')
   const [cDate, sCD] = useState('')
@@ -406,13 +407,17 @@ function TaskForm({ employees, onDone, onCancel }: { employees:Map<string,Employ
     e.preventDefault()
     if (!title.trim() || busy) return
     sB(true)
-    await onDone({ title: title.trim(), priority: pri, due_date: cDate || computeDue(due), assigned_to: assign || null })
+    await onDone({ title: title.trim(), description: desc.trim() || null, priority: pri, due_date: cDate || computeDue(due), assigned_to: assign || null })
     sB(false)
   }
 
   return (
     <form onSubmit={submit} style={{ background:C.card, borderRadius:10, border:`1px solid ${C.blue}30`, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
       <input ref={ref} placeholder="Opgavetitel..." value={title} onChange={e=>sT(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
+      <textarea placeholder="Beskrivelse / note (valgfrit)..." value={desc} onChange={e=>sDe(e.target.value)} rows={3}
+        style={{ ...inputStyle, resize:'vertical', minHeight:60, fontFamily:'inherit' }}
+        onFocus={e => e.currentTarget.style.borderColor = C.blue}
+        onBlur={e => e.currentTarget.style.borderColor = C.border} />
 
       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
         {PRIORITIES.map(p => (
