@@ -46,4 +46,6 @@ export interface ShoppingItem {
   created_by: string | null
   created_at: string
   updated_at: string
+  due_date: string | null
+  urgent: boolean
 }

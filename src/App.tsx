@@ -10,8 +10,7 @@ import {
 } from './lib/utils'
 import {
   Plus, Check, Trash2, ChevronDown, ChevronRight, AlertTriangle,
-  ExternalLink, MapPin, Calendar, Loader2,
-  Lightbulb,
+  ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame,
 } from 'lucide-react'
 
 /* ━━━ Color Tokens ━━━ */
@@ -64,6 +63,7 @@ export default function App() {
   const shop = useShopping()
   const [addingTask, setAddingTask] = useState(false)
   const [addingShop, setAddingShop] = useState(false)
+  const [selectedIdea, setSelectedIdea] = useState<Todo | null>(null)
 
   const active = useMemo(() => todos.filter(t => !t.resolved), [todos])
   const overdue = useMemo(() => active.filter(t => isOverdue(t.due_date)), [active])
@@ -83,7 +83,11 @@ export default function App() {
     return [...m.entries()]
   }, [active])
 
-  const pendShop = shop.items.filter(i => !i.purchased)
+  const pendShop = shop.items.filter(i => !i.purchased).sort((a,b) => {
+    if (a.urgent && !b.urgent) return -1
+    if (!a.urgent && b.urgent) return 1
+    return 0
+  })
   const doneShop = shop.items.filter(i => i.purchased)
 
   if (loading) return (
@@ -146,7 +150,7 @@ export default function App() {
           {/* COL 2 — Shopping */}
           <Column title="Indkøb" count={pendShop.length} color={C.green}
             action={<AddBtn label="Tilføj" onClick={() => setAddingShop(true)} />}>
-            {addingShop && <ShopForm onDone={async (t,n,u) => { await shop.addItem(t,n,u); setAddingShop(false) }} onCancel={() => setAddingShop(false)} />}
+            {addingShop && <ShopForm onDone={async (t,n,u,d,urg) => { await shop.addItem(t,n,u,d,urg); setAddingShop(false) }} onCancel={() => setAddingShop(false)} />}
             {pendShop.map(i => <ShopCard key={i.id} item={i} onCheck={() => shop.togglePurchased(i.id, true)} onDel={() => shop.deleteItem(i.id)} />)}
             {pendShop.length === 0 && !addingShop && <Empty text="Listen er tom" />}
             {doneShop.length > 0 && (
@@ -160,7 +164,7 @@ export default function App() {
           <Column title="Idéer & Inspiration" count={ideaGroups.reduce((s,[,v])=>s+v.length,0)} color={C.purple}>
             {ideaGroups.map(([cat, items]) => (
               <Collapse key={cat} label={getCategoryLabel(cat)} count={items.length} color={CAT_COLORS[cat] || C.blue} open={false}>
-                {items.map(t => <IdeaRow key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} />)}
+                {items.map(t => <IdeaRow key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onOpen={setSelectedIdea} />)}
               </Collapse>
             ))}
             {ideaGroups.length === 0 && <Empty text="Ingen idéer" />}
@@ -168,6 +172,23 @@ export default function App() {
 
         </div>
       </div>
+
+      {/* ── Idea Detail Modal ── */}
+      {selectedIdea && (
+        <IdeaModal
+          todo={selectedIdea}
+          emp={selectedIdea.assigned_to ? employees.get(selectedIdea.assigned_to) : undefined}
+          onClose={() => setSelectedIdea(null)}
+          onAddTodo={async (title, desc) => {
+            await addTodo({ title, description: desc, priority: 'Normal' })
+            setSelectedIdea(null)
+          }}
+          onAddShopping={async (title, note, url) => {
+            await shop.addItem(title, note, url)
+            setSelectedIdea(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -329,13 +350,13 @@ function TaskCard({ t, emp, onDone, onDel }: { t:Todo; emp?:Employee; onDone:()=
 }
 
 /* ━━━ Idea Row ━━━ */
-function IdeaRow({ t, emp }: { t:Todo; emp?:Employee }) {
+function IdeaRow({ t, emp, onOpen }: { t:Todo; emp?:Employee; onOpen:(t:Todo)=>void }) {
   const title = decodeHtmlEntities(t.title)
   const desc = parseDescription(t.description)
   const [ie, sIe] = useState(false)
 
   return (
-    <div style={{ display:'flex', borderRadius:8, border:`1px solid ${C.border}`, background:C.card, overflow:'hidden', transition:'background 0.15s' }}
+    <div onClick={() => onOpen(t)} style={{ display:'flex', borderRadius:8, border:`1px solid ${C.border}`, background:C.card, overflow:'hidden', transition:'background 0.15s', cursor:'pointer' }}
       onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
       onMouseLeave={e => e.currentTarget.style.background = C.card}>
       {desc.image && !ie ? (
@@ -366,16 +387,24 @@ function IdeaRow({ t, emp }: { t:Todo; emp?:Employee }) {
 
 /* ━━━ Shop Card ━━━ */
 function ShopCard({ item, done, onCheck, onDel }: { item:ShoppingItem; done?:boolean; onCheck:()=>void; onDel:()=>void }) {
+  const borderColor = done ? C.border : item.urgent ? C.red+'40' : C.green+'25'
+  const bg = done ? 'transparent' : item.urgent ? C.red+'06' : C.card
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:8, background: done ? 'transparent' : C.card, border:`1px solid ${done ? C.border : C.green+'25'}`, opacity: done ? 0.45 : 1, transition:'all 0.15s' }}>
+    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:8, background:bg, border:`1px solid ${borderColor}`, opacity: done ? 0.45 : 1, transition:'all 0.15s' }}>
       <button onClick={onCheck} style={{ width:18, height:18, borderRadius:5, border:`2px solid ${done ? C.green : C.green+'60'}`, background: done ? C.green : 'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, transition:'all 0.15s' }}
         onMouseEnter={e => { if(!done) { e.currentTarget.style.borderColor = C.green; e.currentTarget.style.background = C.green+'20' } }}
         onMouseLeave={e => { if(!done) { e.currentTarget.style.borderColor = C.green+'60'; e.currentTarget.style.background = 'transparent' } }}>
         {done && <Check style={{ width:11, height:11, color:'#fff' }} />}
       </button>
       <div style={{ flex:1, minWidth:0 }}>
-        <span style={{ fontSize:13, fontWeight:500, textDecoration: done ? 'line-through' : 'none', color: done ? C.textMuted : C.text }}>{item.title}</span>
-        {item.note && <div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{item.note}</div>}
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          {item.urgent && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:C.red+'20', color:C.red, textTransform:'uppercase' }}>HASTER</span>}
+          <span style={{ fontSize:13, fontWeight:500, textDecoration: done ? 'line-through' : 'none', color: done ? C.textMuted : C.text }}>{item.title}</span>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
+          {item.note && <span style={{ fontSize:10, color:C.textMuted }}>{item.note}</span>}
+          {item.due_date && <DuePill date={item.due_date} />}
+        </div>
       </div>
       {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color:C.textMuted, transition:'color 0.15s' }} onClick={e=>e.stopPropagation()} onMouseEnter={e=>e.currentTarget.style.color=C.green} onMouseLeave={e=>e.currentTarget.style.color=C.textMuted}><ExternalLink style={{ width:13, height:13 }} /></a>}
       <button onClick={onDel} style={{ padding:2, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.25, transition:'all 0.15s' }}
@@ -460,10 +489,12 @@ function TaskForm({ employees, onDone, onCancel }: { employees:Map<string,Employ
   )
 }
 
-function ShopForm({ onDone, onCancel }: { onDone:(t:string,n?:string,u?:string)=>Promise<any>; onCancel:()=>void }) {
+function ShopForm({ onDone, onCancel }: { onDone:(t:string,n?:string,u?:string,d?:string,urg?:boolean)=>Promise<any>; onCancel:()=>void }) {
   const [title, sT] = useState('')
   const [note, sN] = useState('')
   const [url, sU] = useState('')
+  const [dueDate, sDD] = useState('')
+  const [urgent, sUrg] = useState(false)
   const [busy, sB] = useState(false)
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => { ref.current?.focus() }, [])
@@ -472,7 +503,7 @@ function ShopForm({ onDone, onCancel }: { onDone:(t:string,n?:string,u?:string)=
     e.preventDefault()
     if (!title.trim()||busy) return
     sB(true)
-    await onDone(title.trim(), note.trim()||undefined, url.trim()||undefined)
+    await onDone(title.trim(), note.trim()||undefined, url.trim()||undefined, dueDate||undefined, urgent)
     sB(false)
   }
 
@@ -481,6 +512,18 @@ function ShopForm({ onDone, onCancel }: { onDone:(t:string,n?:string,u?:string)=
       <input ref={ref} placeholder="Hvad skal købes?" value={title} onChange={e=>sT(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
       <input placeholder="Note (valgfrit)" value={note} onChange={e=>sN(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
       <input placeholder="Link (valgfrit)" value={url} onChange={e=>sU(e.target.value)} style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
+      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+        <input type="date" value={dueDate} onChange={e=>sDD(e.target.value)} style={{ ...inputStyle, width:'auto', padding:'5px 10px', fontSize:12 }} onFocus={inputFocus} onBlur={inputBlur} />
+        <button type="button" onClick={() => sUrg(u=>!u)} style={{
+          display:'flex', alignItems:'center', gap:4, padding:'5px 12px', borderRadius:6, fontSize:11, fontWeight:700, cursor:'pointer',
+          border: `1px solid ${urgent ? C.red+'60' : C.border}`,
+          background: urgent ? C.red+'18' : 'transparent',
+          color: urgent ? C.red : C.textMuted,
+          textTransform:'uppercase',
+        }}>
+          <Flame style={{ width:12, height:12 }} /> HASTER
+        </button>
+      </div>
       <div style={{ display:'flex', gap:8, marginTop:2 }}>
         <button type="submit" disabled={!title.trim()||busy} style={{ padding:'7px 16px', borderRadius:8, fontSize:11, fontWeight:700, background:C.red, color:'#fff', border:'none', cursor:'pointer', opacity: (!title.trim()||busy) ? 0.35 : 1, textTransform:'uppercase', letterSpacing:'0.04em' }}>
           {busy ? 'TILF\u00d8JER...' : 'TILF\u00d8J'}
@@ -488,5 +531,96 @@ function ShopForm({ onDone, onCancel }: { onDone:(t:string,n?:string,u?:string)=
         <button type="button" onClick={onCancel} style={{ padding:'7px 16px', borderRadius:8, fontSize:11, fontWeight:600, background:'transparent', color:C.textMuted, border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>ANNULLER</button>
       </div>
     </form>
+  )
+}
+
+/* ━━━ Idea Detail Modal ━━━ */
+function IdeaModal({ todo, emp, onClose, onAddTodo, onAddShopping }: {
+  todo: Todo; emp?: Employee
+  onClose: () => void
+  onAddTodo: (title: string, desc: string | null) => Promise<any>
+  onAddShopping: (title: string, note?: string, url?: string) => Promise<any>
+}) {
+  const title = decodeHtmlEntities(todo.title)
+  const desc = parseDescription(todo.description)
+  const [busy, setBusy] = useState('')
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:40 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:C.surface, borderRadius:16, border:`1px solid ${C.border}`, maxWidth:560, width:'100%', maxHeight:'80vh', overflow:'auto' }}>
+
+        {/* Image header */}
+        {desc.image && (
+          <div style={{ width:'100%', height:220, background:C.card, overflow:'hidden', borderRadius:'16px 16px 0 0' }}>
+            <img src={desc.image} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+          </div>
+        )}
+
+        <div style={{ padding:24 }}>
+          {/* Title + close */}
+          <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:16 }}>
+            <div style={{ flex:1 }}>
+              <h2 style={{ fontSize:18, fontWeight:700, color:C.text, lineHeight:1.3 }}>{title}</h2>
+              <div style={{ fontSize:12, color:C.textMuted, marginTop:6 }}>
+                {todo.category && <span>{getCategoryLabel(todo.category)}</span>}
+                {emp && <span> &middot; {emp.navn}</span>}
+                {todo.created_at && <span> &middot; {new Date(todo.created_at).toLocaleDateString('da-DK', { day:'numeric', month:'short', year:'numeric' })}</span>}
+              </div>
+            </div>
+            <button onClick={onClose} style={{ padding:6, borderRadius:8, border:'none', background:C.card, color:C.textMuted, cursor:'pointer', flexShrink:0 }}>
+              <X style={{ width:16, height:16 }} />
+            </button>
+          </div>
+
+          {/* Description */}
+          {desc.text && (
+            <p style={{ fontSize:14, color:C.textSec, lineHeight:1.7, marginBottom:16 }}>{desc.text}</p>
+          )}
+
+          {/* Tags */}
+          {desc.tags && desc.tags.length > 0 && (
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:16 }}>
+              {desc.tags.map((tag, i) => (
+                <span key={i} style={{ fontSize:11, fontWeight:500, padding:'3px 10px', borderRadius:6, background:C.purple+'14', color:C.purple }}>{tag}</span>
+              ))}
+            </div>
+          )}
+
+          {/* Link */}
+          {desc.url && (
+            <div style={{ marginBottom:20 }}>
+              <a href={desc.url} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:12, color:C.blue, textDecoration:'none', padding:'6px 12px', borderRadius:8, background:C.blue+'10', border:`1px solid ${C.blue}25` }}>
+                <ExternalLink style={{ width:13, height:13 }} /> Se original
+              </a>
+            </div>
+          )}
+
+          {/* Gallery images */}
+          {desc.images && desc.images.length > 1 && (
+            <div style={{ display:'flex', gap:8, marginBottom:20, overflowX:'auto' }}>
+              {desc.images.slice(0, 6).map((img, i) => (
+                <img key={i} src={img} alt="" style={{ width:80, height:80, objectFit:'cover', borderRadius:8, border:`1px solid ${C.border}`, flexShrink:0 }} />
+              ))}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display:'flex', gap:8, borderTop:`1px solid ${C.border}`, paddingTop:16, marginTop:8 }}>
+            <button
+              disabled={!!busy}
+              onClick={async () => { setBusy('todo'); await onAddTodo(title, desc.text || null); setBusy('') }}
+              style={{ flex:1, padding:'10px 16px', borderRadius:8, fontSize:11, fontWeight:700, background:C.blue, color:'#fff', border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em', opacity: busy ? 0.5 : 1, transition:'opacity 0.15s' }}>
+              {busy === 'todo' ? 'OVERFØRER...' : 'TILFØJ TIL TODO'}
+            </button>
+            <button
+              disabled={!!busy}
+              onClick={async () => { setBusy('shop'); await onAddShopping(title, desc.text || undefined, desc.url); setBusy('') }}
+              style={{ flex:1, padding:'10px 16px', borderRadius:8, fontSize:11, fontWeight:700, background:C.green, color:'#fff', border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em', opacity: busy ? 0.5 : 1, transition:'opacity 0.15s' }}>
+              {busy === 'shop' ? 'OVERFØRER...' : 'TILFØJ TIL INDKØB'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

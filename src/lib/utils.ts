@@ -87,7 +87,7 @@ export function getCategoryLabel(category: string | null): string {
     case 'idea-inspiration': return 'Inspiration'
     case 'idea-activity': return 'Aktivitetsidéer'
     case 'idea-company': return 'Firmaer'
-    case 'IDEER': return 'Idéer'
+    case 'IDEER': return 'Idéer fra Crew'
     default: return 'Opgaver'
   }
 }

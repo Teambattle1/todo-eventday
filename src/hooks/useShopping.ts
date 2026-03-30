@@ -12,6 +12,7 @@ export function useShopping() {
       .from('todo_shopping')
       .select('*')
       .order('purchased', { ascending: true })
+      .order('urgent', { ascending: false })
       .order('created_at', { ascending: false })
 
     if (!error && data && mountedRef.current) {
@@ -20,10 +21,10 @@ export function useShopping() {
     }
   }, [])
 
-  const addItem = useCallback(async (title: string, note?: string, url?: string) => {
+  const addItem = useCallback(async (title: string, note?: string, url?: string, due_date?: string, urgent?: boolean) => {
     const { data, error } = await supabase
       .from('todo_shopping')
-      .insert({ title, note: note || null, url: url || null })
+      .insert({ title, note: note || null, url: url || null, due_date: due_date || null, urgent: urgent || false })
       .select()
       .single()
 
