@@ -6,7 +6,7 @@ import type { Todo, Employee, ShoppingItem } from './lib/types'
 import {
   getPriorityColor, getPriorityOrder, getPriorityLabel,
   isIdeaCategory, getCategoryLabel, parseDescription,
-  decodeHtmlEntities, isOverdue, getInitials, hashColor, stripHtml,
+  decodeHtmlEntities, isOverdue, getInitials, hashColor,
 } from './lib/utils'
 import {
   Plus, Check, Trash2, ChevronDown, ChevronRight, AlertTriangle,
