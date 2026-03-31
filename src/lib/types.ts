@@ -17,6 +17,7 @@ export interface Todo {
   lon: number | null
   geo_address: string | null
   category: string | null
+  images: string[] | null
 }
 
 export interface Employee {
@@ -48,4 +49,9 @@ export interface ShoppingItem {
   updated_at: string
   due_date: string | null
   urgent: boolean
+  assigned_to: string | null
+  lat: number | null
+  lon: number | null
+  geo_address: string | null
+  images: string[] | null
 }

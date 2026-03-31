@@ -47,6 +47,18 @@ export function useShopping() {
     }
   }, [])
 
+  const updateItem = useCallback(async (id: string, updates: Partial<ShoppingItem>) => {
+    const { error } = await supabase
+      .from('todo_shopping')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+
+    if (!error) {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, ...updates } : i))
+    }
+    return { error }
+  }, [])
+
   const deleteItem = useCallback(async (id: string) => {
     const { error } = await supabase
       .from('todo_shopping')
@@ -94,5 +106,5 @@ export function useShopping() {
     }
   }, [fetchItems])
 
-  return { items, loading, addItem, togglePurchased, deleteItem }
+  return { items, loading, addItem, updateItem, togglePurchased, deleteItem }
 }
