@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useTodos } from './hooks/useTodos'
 import { useEmployees } from './hooks/useEmployees'
 import { useShopping } from './hooks/useShopping'
@@ -73,6 +73,19 @@ export default function App() {
   const [selectedIdea, setSelectedIdea] = useState<Todo | null>(null)
   const [editingShop, setEditingShop] = useState<ShoppingItem | null>(null)
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null)
+  const [mobileTab, setMobileTab] = useState<number>(0)
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  const firstName = useCallback((emp: Employee | undefined, fallback: string) => {
+    if (!emp) return fallback
+    return emp.navn.split(' ')[0] || fallback
+  }, [])
 
   const active = useMemo(() => todos.filter(t => !t.resolved), [todos])
   const overdue = useMemo(() => active.filter(t => isOverdue(t.due_date)), [active])
@@ -165,15 +178,15 @@ export default function App() {
 
       {/* ── Header ── */}
       <header style={{ borderBottom:`1px solid ${C.border}`, background:C.surface, flexShrink:0 }}>
-        <div style={{ maxWidth:1600, margin:'0 auto', padding:'20px 40px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+        <div style={{ maxWidth:1600, margin:'0 auto', padding: isMobile ? '12px 12px' : '20px 40px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <h1 style={{ fontSize:20, fontWeight:700, letterSpacing:'-0.02em', color:C.text }}>TeamBattle Todo</h1>
+              <h1 style={{ fontSize: isMobile ? 16 : 20, fontWeight:700, letterSpacing:'-0.02em', color:C.text }}>TeamBattle Todo</h1>
               {gpsActive && (
                 <div style={{ width:8, height:8, borderRadius:4, background:C.cyan, boxShadow:`0 0 6px ${C.cyan}` }} title="GPS aktiv" />
               )}
             </div>
-            <div style={{ display:'flex', alignItems:'center', gap:20, marginTop:6 }}>
+            <div style={{ display:'flex', alignItems:'center', gap: isMobile ? 12 : 20, marginTop:6 }}>
               <StatPill n={tasks.length} label="Opgaver" color={C.blue} />
               <StatPill n={pendShop.length} label="Indkøb" color={C.green} />
               <StatPill n={ideaGroups.reduce((s,[,v])=>s+v.length,0)} label="Idéer" color={C.purple} />
@@ -181,16 +194,40 @@ export default function App() {
               <div style={{ width:8, height:8, borderRadius:4, background: connected ? '#34d399' : C.red, marginLeft:4 }} />
             </div>
           </div>
-          <LiveClock />
+          {!isMobile && <LiveClock />}
         </div>
       </header>
 
-      {/* ── 4-column grid ── */}
+      {/* ── Mobile tabs ── */}
+      {isMobile && (
+        <div style={{ display:'flex', overflow:'auto', borderBottom:`1px solid ${C.border}`, background:C.surface, flexShrink:0 }}>
+          {[
+            { label: firstName(thomasEmp, 'Thomas'), color: C.blue },
+            { label: firstName(mariaEmp, 'Maria'), color: C.pink },
+            { label: 'Indkøb', color: C.green },
+            { label: 'Idéer', color: C.purple },
+          ].map((tab, i) => (
+            <button key={i} onClick={() => setMobileTab(i)} style={{
+              flex:'0 0 auto', padding:'10px 16px', fontSize:11, fontWeight:700, textTransform:'uppercase',
+              letterSpacing:'0.04em', border:'none', cursor:'pointer', whiteSpace:'nowrap',
+              background: mobileTab === i ? tab.color + '18' : 'transparent',
+              color: mobileTab === i ? tab.color : C.textMuted,
+              borderBottom: mobileTab === i ? `2px solid ${tab.color}` : '2px solid transparent',
+              transition:'all 0.15s',
+            }}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Content grid (4-col desktop / single tab mobile) ── */}
       <div style={{ flex:1, overflow:'auto' }}>
-        <div style={{ maxWidth:1600, margin:'0 auto', padding:'28px 40px', display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:24, alignItems:'start' }}>
+        <div style={{ maxWidth:1600, margin:'0 auto', padding: isMobile ? '12px 12px' : '28px 40px', display: isMobile ? 'flex' : 'grid', flexDirection:'column', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap: isMobile ? 12 : 24, alignItems:'start' }}>
 
           {/* COL 1 — Thomas */}
-          <Column title={`TODO ${thomasEmp?.navn || 'Thomas'}`} count={thomasTasks.length} color={C.blue}
+          {(!isMobile || mobileTab === 0) && (
+          <Column title={`TODO ${firstName(thomasEmp, 'Thomas')}`} count={thomasTasks.length} color={C.blue}
             action={<AddBtn label="Ny opgave" onClick={() => setAddingTaskThomas(true)} />}>
             {addingTaskThomas && <TaskForm employees={employees} defaultAssign={thomasEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || thomasEmp?.id || null }); setAddingTaskThomas(false) }} onCancel={() => setAddingTaskThomas(false)} />}
             {thomasTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
@@ -201,16 +238,20 @@ export default function App() {
             )}
             {thomasTasks.length === 0 && unassignedTasks.length === 0 && !addingTaskThomas && <Empty text="Ingen aktive opgaver" />}
           </Column>
+          )}
 
           {/* COL 2 — Maria */}
-          <Column title={`TODO ${mariaEmp?.navn || 'Maria'}`} count={mariaTasks.length} color={C.pink}
+          {(!isMobile || mobileTab === 1) && (
+          <Column title={`TODO ${firstName(mariaEmp, 'Maria')}`} count={mariaTasks.length} color={C.pink}
             action={<AddBtn label="Ny opgave" onClick={() => setAddingTaskMaria(true)} />}>
             {addingTaskMaria && <TaskForm employees={employees} defaultAssign={mariaEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || mariaEmp?.id || null }); setAddingTaskMaria(false) }} onCancel={() => setAddingTaskMaria(false)} />}
             {mariaTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
             {mariaTasks.length === 0 && !addingTaskMaria && <Empty text="Ingen aktive opgaver" />}
           </Column>
+          )}
 
-          {/* COL 2 — Shopping */}
+          {/* COL 3 — Shopping */}
+          {(!isMobile || mobileTab === 2) && (
           <Column title="Indkøb" count={pendShop.length} color={C.green}
             action={<AddBtn label="Tilføj" onClick={() => setAddingShop(true)} />}>
             {addingShop && <ShopForm onDone={async (t,n,u,d,urg) => { await shop.addItem(t,n,u,d,urg); setAddingShop(false) }} onCancel={() => setAddingShop(false)} />}
@@ -222,8 +263,10 @@ export default function App() {
               </Collapse>
             )}
           </Column>
+          )}
 
-          {/* COL 3 — Ideas */}
+          {/* COL 4 — Ideas */}
+          {(!isMobile || mobileTab === 3) && (
           <Column title="Idéer & Inspiration" count={ideaGroups.reduce((s,[,v])=>s+v.length,0)} color={C.purple}>
             {ideaGroups.map(([cat, items]) => (
               <Collapse key={cat} label={getCategoryLabel(cat)} count={items.length} color={CAT_COLORS[cat] || C.blue} open={false}>
@@ -232,6 +275,7 @@ export default function App() {
             ))}
             {ideaGroups.length === 0 && <Empty text="Ingen idéer" />}
           </Column>
+          )}
 
         </div>
       </div>
