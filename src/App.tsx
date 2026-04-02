@@ -3,6 +3,7 @@ import { useTodos } from './hooks/useTodos'
 import { useEmployees } from './hooks/useEmployees'
 import { useShopping } from './hooks/useShopping'
 import { useGeofence } from './hooks/useGeofence'
+import { useWakeLock } from './hooks/useWakeLock'
 import { supabase } from './lib/supabase'
 import { useLocations } from './hooks/useLocations'
 import type { Todo, Employee, ShoppingItem } from './lib/types'
@@ -67,6 +68,7 @@ export default function App() {
   const shop = useShopping()
   const locations = useLocations()
   const { nearbyItems, watching: gpsActive } = useGeofence(todos, shop.items)
+  useWakeLock()
   const [addingTaskThomas, setAddingTaskThomas] = useState(false)
   const [addingTaskMaria, setAddingTaskMaria] = useState(false)
   const [addingShop, setAddingShop] = useState(false)
