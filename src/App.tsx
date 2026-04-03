@@ -15,7 +15,7 @@ import {
 import {
   Plus, Check, Trash2, ChevronDown, ChevronRight, AlertTriangle,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
-  Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image,
+  Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Mic, MicOff, Keyboard,
 } from 'lucide-react'
 
 /* ━━━ Color Tokens ━━━ */
@@ -77,11 +77,33 @@ export default function App() {
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null)
   const [mobileTab, setMobileTab] = useState<number>(0)
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  const [quickCreate, setQuickCreate] = useState(false)
+  const [currentUser, setCurrentUser] = useState<'thomas' | 'maria'>(() => (localStorage.getItem('todo-user') as any) || 'thomas')
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 768)
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Keyboard shortcut: N or Ctrl+N to quick-create
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Don't trigger when typing in inputs
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === 'n' || e.key === 'N' || (e.key === 'n' && (e.ctrlKey || e.metaKey))) {
+        e.preventDefault()
+        setQuickCreate(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const switchUser = useCallback((user: 'thomas' | 'maria') => {
+    setCurrentUser(user)
+    localStorage.setItem('todo-user', user)
   }, [])
 
   const firstName = useCallback((emp: Employee | undefined, fallback: string) => {
@@ -355,6 +377,36 @@ export default function App() {
             setEditingShop(null)
           }}
         />
+      )}
+
+      {/* ── Quick Create Modal ── */}
+      {quickCreate && (
+        <QuickCreateModal
+          currentUser={currentUser}
+          onSwitchUser={switchUser}
+          thomasEmp={thomasEmp}
+          mariaEmp={mariaEmp}
+          onClose={() => setQuickCreate(false)}
+          onSubmit={async (title, desc) => {
+            const assignTo = currentUser === 'thomas' ? thomasEmp?.id : mariaEmp?.id
+            await addTodo({ title, description: desc || null, priority: 'Normal', assigned_to: assignTo || null })
+            setQuickCreate(false)
+            // On mobile, switch to the correct tab
+            if (isMobile) setMobileTab(currentUser === 'thomas' ? 0 : 1)
+          }}
+        />
+      )}
+
+      {/* ── Floating Action Button (mobile) ── */}
+      {isMobile && !quickCreate && (
+        <button onClick={() => setQuickCreate(true)} style={{
+          position:'fixed', bottom:24, right:24, width:56, height:56, borderRadius:28,
+          background:C.red, color:'#fff', border:'none', cursor:'pointer',
+          display:'flex', alignItems:'center', justifyContent:'center',
+          boxShadow:'0 4px 16px rgba(0,0,0,0.5)', zIndex:900,
+        }}>
+          <Plus style={{ width:28, height:28 }} />
+        </button>
       )}
     </div>
   )
@@ -1288,6 +1340,179 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ━━━ Quick Create Modal ━━━ */
+function QuickCreateModal({ currentUser, onSwitchUser, thomasEmp, mariaEmp, onClose, onSubmit }: {
+  currentUser: 'thomas' | 'maria'
+  onSwitchUser: (u: 'thomas' | 'maria') => void
+  thomasEmp?: Employee
+  mariaEmp?: Employee
+  onClose: () => void
+  onSubmit: (title: string, desc: string) => Promise<any>
+}) {
+  const [title, sT] = useState('')
+  const [desc, sDe] = useState('')
+  const [busy, sB] = useState(false)
+  const [listening, setListening] = useState(false)
+  const [voiceTarget, setVoiceTarget] = useState<'title' | 'desc'>('title')
+  const recognitionRef = useRef<any>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const startVoice = (target: 'title' | 'desc') => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) { alert('Tale-input er ikke understøttet i denne browser. Brug Chrome.'); return }
+
+    if (listening && recognitionRef.current) {
+      recognitionRef.current.stop()
+      setListening(false)
+      return
+    }
+
+    const recognition = new SR()
+    recognition.lang = 'da-DK'
+    recognition.continuous = false
+    recognition.interimResults = false
+    recognitionRef.current = recognition
+    setVoiceTarget(target)
+    setListening(true)
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+      if (target === 'title') sT(prev => prev ? prev + ' ' + transcript : transcript)
+      else sDe(prev => prev ? prev + ' ' + transcript : transcript)
+      setListening(false)
+    }
+    recognition.onerror = () => setListening(false)
+    recognition.onend = () => setListening(false)
+    recognition.start()
+  }
+
+  const submit = async () => {
+    if (!title.trim() || busy) return
+    sB(true)
+    await onSubmit(title.trim(), desc.trim())
+    sB(false)
+  }
+
+  const thomasName = thomasEmp ? thomasEmp.navn.split(' ')[0] : 'Thomas'
+  const mariaName = mariaEmp ? mariaEmp.navn.split(' ')[0] : 'Maria'
+  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:C.surface, borderRadius:16, border:`1px solid ${C.border}`, width:'100%', maxWidth:480, maxHeight:'90vh', overflow:'auto' }}>
+        {/* Header */}
+        <div style={{ padding:'16px 20px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <Plus style={{ width:18, height:18, color:C.red }} />
+            <span style={{ fontSize:15, fontWeight:700, color:C.text }}>HURTIG OPRET</span>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ fontSize:9, color:C.textMuted, padding:'2px 6px', borderRadius:4, border:`1px solid ${C.border}` }}>
+              {isMac ? '⌘' : 'Ctrl'}+N
+            </span>
+            <button onClick={onClose} style={{ background:'transparent', border:'none', cursor:'pointer', color:C.textMuted, padding:4 }}>
+              <X style={{ width:18, height:18 }} />
+            </button>
+          </div>
+        </div>
+
+        <div style={{ padding:20, display:'flex', flexDirection:'column', gap:14 }}>
+          {/* User switcher */}
+          <div style={{ display:'flex', gap:8 }}>
+            <button type="button" onClick={() => onSwitchUser('thomas')} style={{
+              flex:1, padding:'10px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer',
+              border: currentUser === 'thomas' ? `2px solid ${C.blue}` : `1px solid ${C.border}`,
+              background: currentUser === 'thomas' ? C.blue + '18' : 'transparent',
+              color: currentUser === 'thomas' ? C.blue : C.textMuted,
+              transition:'all 0.15s',
+            }}>
+              {thomasName}
+            </button>
+            <button type="button" onClick={() => onSwitchUser('maria')} style={{
+              flex:1, padding:'10px 0', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer',
+              border: currentUser === 'maria' ? `2px solid ${C.pink}` : `1px solid ${C.border}`,
+              background: currentUser === 'maria' ? C.pink + '18' : 'transparent',
+              color: currentUser === 'maria' ? C.pink : C.textMuted,
+              transition:'all 0.15s',
+            }}>
+              {mariaName}
+            </button>
+          </div>
+
+          {/* Title + voice */}
+          <div style={{ display:'flex', gap:8 }}>
+            <input
+              ref={inputRef}
+              placeholder="Hvad skal gøres?..."
+              value={title}
+              onChange={e => sT(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+              style={{ ...inputStyle, flex:1, fontSize:15, padding:'12px 14px' }}
+              onFocus={inputFocus} onBlur={inputBlur}
+            />
+            <button type="button" onClick={() => startVoice('title')} style={{
+              width:44, height:44, borderRadius:10, border:`1px solid ${listening && voiceTarget === 'title' ? C.red : C.border}`,
+              background: listening && voiceTarget === 'title' ? C.red + '18' : 'transparent',
+              color: listening && voiceTarget === 'title' ? C.red : C.textMuted,
+              cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+            }}>
+              {listening && voiceTarget === 'title' ? <MicOff style={{ width:18, height:18 }} /> : <Mic style={{ width:18, height:18 }} />}
+            </button>
+          </div>
+
+          {/* Description + voice */}
+          <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
+            <textarea
+              placeholder="Note (valgfrit)..."
+              value={desc}
+              onChange={e => sDe(e.target.value)}
+              rows={2}
+              style={{ ...inputStyle, flex:1, resize:'vertical', minHeight:50, fontFamily:'inherit', fontSize:13 }}
+              onFocus={e => e.currentTarget.style.borderColor = C.blue}
+              onBlur={e => e.currentTarget.style.borderColor = C.border}
+            />
+            <button type="button" onClick={() => startVoice('desc')} style={{
+              width:44, height:44, borderRadius:10, border:`1px solid ${listening && voiceTarget === 'desc' ? C.red : C.border}`,
+              background: listening && voiceTarget === 'desc' ? C.red + '18' : 'transparent',
+              color: listening && voiceTarget === 'desc' ? C.red : C.textMuted,
+              cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+            }}>
+              {listening && voiceTarget === 'desc' ? <MicOff style={{ width:18, height:18 }} /> : <Mic style={{ width:18, height:18 }} />}
+            </button>
+          </div>
+
+          {/* Hint */}
+          <div style={{ fontSize:10, color:C.textMuted, display:'flex', alignItems:'center', gap:6 }}>
+            <Keyboard style={{ width:11, height:11 }} />
+            Tryk <b>N</b> for hurtig opret &middot; <b>Enter</b> for gem &middot; <b>Esc</b> for luk
+          </div>
+
+          {/* Submit */}
+          <button onClick={submit} disabled={!title.trim() || busy} style={{
+            padding:'12px 0', borderRadius:10, fontSize:13, fontWeight:700,
+            background: currentUser === 'thomas' ? C.blue : C.pink,
+            color:'#fff', border:'none', cursor:'pointer',
+            opacity: (!title.trim() || busy) ? 0.35 : 1,
+            textTransform:'uppercase', letterSpacing:'0.04em',
+            transition:'opacity 0.15s',
+          }}>
+            {busy ? 'OPRETTER...' : `OPRET FOR ${currentUser === 'thomas' ? thomasName.toUpperCase() : mariaName.toUpperCase()}`}
+          </button>
         </div>
       </div>
     </div>
