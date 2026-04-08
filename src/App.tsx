@@ -745,6 +745,30 @@ export default function App() {
             await deleteTodo(editingTodo.id)
             setEditingTodo(null)
           }}
+          customLists={customLists}
+          onConvertToShop={async () => {
+            await shop.addItem(
+              editingTodo.title,
+              editingTodo.description || undefined,
+              undefined,
+              editingTodo.due_date || undefined,
+              editingTodo.priority === 'HASTER'
+            )
+            await deleteTodo(editingTodo.id)
+            setEditingTodo(null)
+          }}
+          onConvertToPhoneCall={async () => {
+            await calls.addCall({
+              navn: editingTodo.title,
+              nummer: '',
+              note: editingTodo.description || undefined,
+              assigned_to: editingTodo.assigned_to || undefined,
+              urgent: editingTodo.priority === 'HASTER',
+              due_date: editingTodo.due_date || undefined,
+            })
+            await deleteTodo(editingTodo.id)
+            setEditingTodo(null)
+          }}
         />
       )}
 
@@ -1835,12 +1859,15 @@ function MapPicker({ lat, lon, address, onPick, onClear, locations, onPickLocati
   )
 }
 
-function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose, onSave, onDelete, onConvertToTransport }: {
+function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose, onSave, onDelete, onConvertToTransport, customLists, onConvertToShop, onConvertToPhoneCall }: {
   todo: Todo; employees: Map<string, Employee>; locations: ReturnType<typeof useLocations>; thomasId?: string; mariaId?: string
   onClose: () => void
   onSave: (updates: Partial<Todo>) => Promise<any>
   onDelete: () => Promise<any>
   onConvertToTransport?: () => Promise<any>
+  customLists?: { id: string; name: string; color: string }[]
+  onConvertToShop?: () => Promise<any>
+  onConvertToPhoneCall?: () => Promise<any>
 }) {
   const [title, sT] = useState(todo.title)
   const [desc, sDe] = useState(todo.description || '')
@@ -1883,10 +1910,17 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
   }
 
   // Flyt til liste helper
-  const currentCol = category === 'CODE' ? 'CODE' : category === 'REPAIR' ? 'REPAIR' : (assign === thomasId ? 'thomas' : assign === mariaId ? 'maria' : assign ? 'crew' : 'none')
-  const moveTo = (col: string) => {
+  const currentCol = category?.startsWith('custom:') ? category :
+    category === 'CODE' ? 'CODE' :
+    category === 'REPAIR' ? 'REPAIR' :
+    (assign === thomasId ? 'thomas' : assign === mariaId ? 'maria' : assign ? 'crew' : 'none')
+  const moveTo = async (col: string) => {
+    if (col === '__shop__' && onConvertToShop) { await onConvertToShop(); return }
+    if (col === '__phone__' && onConvertToPhoneCall) { await onConvertToPhoneCall(); return }
+    if (col === '__transport__' && onConvertToTransport) { await onConvertToTransport(); return }
     if (col === 'CODE') { sCat('CODE'); return }
     if (col === 'REPAIR') { sCat('REPAIR'); return }
+    if (col.startsWith('custom:')) { sCat(col); return }
     sCat(null)
     if (col === 'thomas') sA(thomasId || '')
     else if (col === 'maria') sA(mariaId || '')
@@ -1941,12 +1975,26 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
             {/* ── SECTION: Flyt til liste ── */}
             <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til liste" />
             <select value={currentCol} onChange={e => moveTo(e.target.value)} style={{ ...inputStyle, fontSize:12 }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
-              <option value="thomas">TODO {employees.get(thomasId || '')?.navn || 'Thomas'}</option>
-              <option value="maria">TODO {employees.get(mariaId || '')?.navn || 'Maria'}</option>
-              <option value="crew">CREW</option>
-              <option value="CODE">CODE</option>
-              <option value="REPAIR">Repareres</option>
-              <option value="none">Ikke tildelt</option>
+              <optgroup label="Personer">
+                <option value="thomas">TODO {employees.get(thomasId || '')?.navn || 'Thomas'}</option>
+                <option value="maria">TODO {employees.get(mariaId || '')?.navn || 'Maria'}</option>
+                <option value="crew">CREW</option>
+                <option value="none">Ikke tildelt</option>
+              </optgroup>
+              <optgroup label="Lister">
+                <option value="CODE">CODE</option>
+                <option value="REPAIR">Repareres</option>
+                {customLists && customLists.map(l => (
+                  <option key={l.id} value={`custom:${l.id}`}>{l.name}</option>
+                ))}
+              </optgroup>
+              {(onConvertToShop || onConvertToPhoneCall || onConvertToTransport) && (
+                <optgroup label="Konvertér (flytter til anden tabel)">
+                  {onConvertToShop && <option value="__shop__">→ Indkøb</option>}
+                  {onConvertToPhoneCall && <option value="__phone__">→ Ringes til</option>}
+                  {onConvertToTransport && <option value="__transport__">→ Øst / Vest</option>}
+                </optgroup>
+              )}
             </select>
 
             {/* ── SECTION: Tildelt ── */}
