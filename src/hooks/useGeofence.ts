@@ -21,10 +21,14 @@ export function useGeofence(todos: Todo[], shopping: ShoppingItem[] = []) {
   const [position, setPosition] = useState<GeoPosition | null>(null)
   const [permissionDenied, setPermissionDenied] = useState(false)
   const [watching, setWatching] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const watchIdRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!navigator.geolocation) return
+    if (!navigator.geolocation) {
+      setError('Geolocation ikke understøttet')
+      return
+    }
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
@@ -34,10 +38,16 @@ export function useGeofence(todos: Todo[], shopping: ShoppingItem[] = []) {
           accuracy: pos.coords.accuracy,
         })
         setWatching(true)
+        setError(null)
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
           setPermissionDenied(true)
+          setError('GPS-adgang nægtet')
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setError('GPS ikke tilgængelig')
+        } else if (err.code === err.TIMEOUT) {
+          setError('GPS timeout')
         }
         setWatching(false)
       },
@@ -74,5 +84,5 @@ export function useGeofence(todos: Todo[], shopping: ShoppingItem[] = []) {
     return items.sort((a, b) => a.distance - b.distance)
   }, [todos, shopping, position])
 
-  return { position, nearbyItems, watching, permissionDenied }
+  return { position, nearbyItems, watching, permissionDenied, error }
 }
