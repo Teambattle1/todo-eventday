@@ -159,6 +159,12 @@ export default function App() {
   const thomasTasks = useMemo(() => tasks.filter(t => t.assigned_to === thomasEmp?.id), [tasks, thomasEmp])
   const mariaTasks = useMemo(() => tasks.filter(t => t.assigned_to === mariaEmp?.id), [tasks, mariaEmp])
   const crewTasks = useMemo(() => tasks.filter(t => t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id), [tasks, thomasEmp, mariaEmp])
+  const personSectionCounts = useMemo(() => {
+    const c: Record<string, number> = {}
+    thomasTasks.forEach(t => { if (t.section_id) c[`thomas:${t.section_id}`] = (c[`thomas:${t.section_id}`] || 0) + 1 })
+    mariaTasks.forEach(t => { if (t.section_id) c[`maria:${t.section_id}`] = (c[`maria:${t.section_id}`] || 0) + 1 })
+    return c
+  }, [thomasTasks, mariaTasks])
   const unassignedTasks = useMemo(() => tasks.filter(t => !t.assigned_to), [tasks])
   const codeTasks = useMemo(() => {
     const t = active.filter(x => x.category === 'CODE')
@@ -455,7 +461,16 @@ export default function App() {
           customListDueCounts={Object.fromEntries(customLists.map(l => [l.id, dueFlagCount(customListTasks.get(l.id) || [])]))}
           onCreateList={() => setCreatingList(true)}
           onDeleteCustomList={deleteCustomList}
+          sectionsByList={sectionsByList}
+          sectionCounts={personSectionCounts}
           onDropTodo={async (view, id) => {
+            const secMatch = /^(thomas|maria):sec:(.+)$/.exec(view)
+            if (secMatch) {
+              const [, parentKey, secId] = secMatch
+              if (parentKey === 'thomas') await updateTodo(id, { section_id: secId, assigned_to: thomasEmp?.id || null, category: null })
+              else await updateTodo(id, { section_id: secId, assigned_to: mariaEmp?.id || null, category: null })
+              return
+            }
             if (view === 'thomas') await updateTodo(id, { assigned_to: thomasEmp?.id || null, category: null })
             else if (view === 'maria') await updateTodo(id, { assigned_to: mariaEmp?.id || null, category: null })
             else if (view === 'crew') await updateTodo(id, { category: null })
@@ -489,6 +504,19 @@ export default function App() {
             customLists={customLists}
             customListCount={currentView.startsWith('custom:') ? (customListTasks.get(currentView.slice(7))?.length || 0) : 0}
             onRenameCustomList={renameCustomList}
+            titleOverride={(() => {
+              const m = /^(thomas|maria):sec:(.+)$/.exec(currentView)
+              if (!m) return undefined
+              const parentKey = m[1] as 'thomas' | 'maria'
+              const section = (sectionsByList[parentKey] || []).find(s => s.id === m[2])
+              const parentName = parentKey === 'thomas' ? firstName(thomasEmp, 'Thomas') : firstName(mariaEmp, 'Maria')
+              return `${parentName} – ${section?.name || 'Sektion'}`
+            })()}
+            countOverride={(() => {
+              const m = /^(thomas|maria):sec:(.+)$/.exec(currentView)
+              if (!m) return undefined
+              return personSectionCounts[`${m[1]}:${m[2]}`] || 0
+            })()}
           />
           <div style={{ flex:1, overflowY:'auto' }}>
             <div style={{ maxWidth:900, margin:'0 auto', padding: isMobile ? '16px' : '24px 40px 48px' }}>
@@ -534,6 +562,36 @@ export default function App() {
                 />
                 {mariaTasks.length === 0 && !addingTaskMaria && <Empty text="Ingen aktive opgaver" />}
               </>)}
+
+              {/* Thomas/Maria section sub-view */}
+              {(() => {
+                const m = /^(thomas|maria):sec:(.+)$/.exec(currentView)
+                if (!m) return null
+                const parentKey = m[1] as 'thomas' | 'maria'
+                const secId = m[2]
+                const section = (sectionsByList[parentKey] || []).find(s => s.id === secId)
+                if (!section) return <Empty text="Sektionen findes ikke" />
+                const parentEmp = parentKey === 'thomas' ? thomasEmp : mariaEmp
+                const parentColor = parentKey === 'thomas' ? C.blue : C.pink
+                const secColor = section.color || parentColor
+                const parentTasks = parentKey === 'thomas' ? thomasTasks : mariaTasks
+                const items = parentTasks.filter(t => t.section_id === secId)
+                const adding = parentKey === 'thomas' ? addingTaskThomas : addingTaskMaria
+                const setAdding = parentKey === 'thomas' ? setAddingTaskThomas : setAddingTaskMaria
+                return (
+                  <>
+                    {adding && <TaskForm employees={employees} defaultAssign={parentEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || parentEmp?.id || null, section_id: secId, category: null }); setAdding(false) }} onCancel={() => setAdding(false)} />}
+                    {!adding && <AddRow label={`Tilføj til ${section.name}`} onClick={() => setAdding(true)} />}
+                    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 4px 10px', borderBottom:`1px solid ${C.border}`, marginBottom:10 }}>
+                      <div style={{ width:4, height:14, borderRadius:2, background:secColor }} />
+                      <span style={{ fontSize:12, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.05em' }}>{section.name}</span>
+                      <span style={{ fontSize:10, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 7px', borderRadius:10 }}>{items.length}</span>
+                    </div>
+                    {items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                    {items.length === 0 && !adding && <Empty text="Sektionen er tom — træk opgaver hertil eller tilføj en ny" />}
+                  </>
+                )
+              })()}
 
               {/* Crew — grouped by crew member */}
               {currentView === 'crew' && (<>
@@ -3024,6 +3082,7 @@ function Sidebar({
   thomasName, mariaName, thomasId, mariaId, gpsActive, connected,
   onQuickCreate, onShowPrintTransport, onDropTodo,
   customLists, customListCounts, customListDueCounts, onCreateList, onDeleteCustomList,
+  sectionsByList, sectionCounts,
 }: {
   open: boolean
   isMobile: boolean
@@ -3046,6 +3105,8 @@ function Sidebar({
   onQuickCreate: () => void
   onShowPrintTransport: () => void
   onDropTodo: (view: ViewKeyLocal, id: string) => void | Promise<any>
+  sectionsByList?: Record<string, { id: string; name: string; color?: string | null }[]>
+  sectionCounts?: Record<string, number>
 }) {
   if (!open) return null
 
@@ -3076,7 +3137,33 @@ function Sidebar({
         {/* Personer */}
         <div style={{ fontSize:10, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 10px 6px' }}>Personer</div>
         <SidebarItem dotColor={C.blue} label={thomasName} count={counts.thomas} active={currentView==='thomas'} color={C.blue} highlight={(dueCounts.thomas || 0) > 0} onClick={() => setCurrentView('thomas')} onDropTodo={thomasId ? id => onDropTodo('thomas', id) : undefined} />
+        {(sectionsByList?.['thomas'] || []).map(sec => (
+          <SidebarItem
+            key={sec.id}
+            indent
+            dotColor={sec.color || C.blue}
+            label={sec.name}
+            count={sectionCounts?.[`thomas:${sec.id}`] || 0}
+            active={currentView === `thomas:sec:${sec.id}`}
+            color={sec.color || C.blue}
+            onClick={() => setCurrentView(`thomas:sec:${sec.id}` as ViewKeyLocal)}
+            onDropTodo={thomasId ? id => onDropTodo(`thomas:sec:${sec.id}` as ViewKeyLocal, id) : undefined}
+          />
+        ))}
         <SidebarItem dotColor={C.pink} label={mariaName} count={counts.maria} active={currentView==='maria'} color={C.pink} highlight={(dueCounts.maria || 0) > 0} onClick={() => setCurrentView('maria')} onDropTodo={mariaId ? id => onDropTodo('maria', id) : undefined} />
+        {(sectionsByList?.['maria'] || []).map(sec => (
+          <SidebarItem
+            key={sec.id}
+            indent
+            dotColor={sec.color || C.pink}
+            label={sec.name}
+            count={sectionCounts?.[`maria:${sec.id}`] || 0}
+            active={currentView === `maria:sec:${sec.id}`}
+            color={sec.color || C.pink}
+            onClick={() => setCurrentView(`maria:sec:${sec.id}` as ViewKeyLocal)}
+            onDropTodo={mariaId ? id => onDropTodo(`maria:sec:${sec.id}` as ViewKeyLocal, id) : undefined}
+          />
+        ))}
         <SidebarItem dotColor={C.cyan} label="Crew" count={counts.crew} active={currentView==='crew'} color={C.cyan} highlight={(dueCounts.crew || 0) > 0} onClick={() => setCurrentView('crew')} onDropTodo={id => onDropTodo('crew', id)} />
 
         {/* Lister */}
@@ -3145,9 +3232,10 @@ function sidebarBtnStyle(active?: boolean, bgHover?: string): React.CSSPropertie
   }
 }
 
-function SidebarItem({ icon, dotColor, label, count, active, color, highlight, onClick, onDropTodo, onDelete }: {
+function SidebarItem({ icon, dotColor, label, count, active, color, highlight, onClick, onDropTodo, onDelete, indent }: {
   icon?: ReactNode; dotColor?: string; label: string; count: number; active: boolean; color: string; highlight?: boolean
   onClick: () => void; onDropTodo?: (id: string) => void | Promise<any>; onDelete?: () => void
+  indent?: boolean
 }) {
   const [dragOver, setDragOver] = useState(false)
   const [hover, setHover] = useState(false)
@@ -3165,14 +3253,15 @@ function SidebarItem({ icon, dotColor, label, count, active, color, highlight, o
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}>
       <button onClick={onClick} style={{
-        width:'100%', display:'flex', alignItems:'center', gap:10, padding:'7px 10px', borderRadius:6,
+        width:'100%', display:'flex', alignItems:'center', gap:10,
+        padding: indent ? '5px 10px 5px 26px' : '7px 10px', borderRadius:6,
         border: dragOver ? `1px dashed ${color}` : '1px solid transparent',
         background: active ? C.card : dragOver ? color + '14' : hover ? C.cardHover : 'transparent',
-        color: active ? C.text : C.textSec, fontSize:13, fontWeight: active ? 600 : 500,
+        color: active ? C.text : C.textSec, fontSize: indent ? 12 : 13, fontWeight: active ? 600 : 500,
         cursor:'pointer', textAlign:'left', transition:'background 0.12s',
         marginBottom:1,
       }}>
-        {icon ? icon : dotColor && <div style={{ width:8, height:8, borderRadius:4, background:dotColor, flexShrink:0 }} />}
+        {icon ? icon : dotColor && <div style={{ width: indent ? 6 : 8, height: indent ? 6 : 8, borderRadius:4, background:dotColor, flexShrink:0 }} />}
         <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{label}</span>
         {onDelete && hover ? (
           <span onClick={e => { e.stopPropagation(); if (confirm(`Slet listen "${label}"?`)) onDelete() }} style={{ padding:2, color:C.textMuted, cursor:'pointer', display:'inline-flex' }}>
@@ -3198,7 +3287,7 @@ function getIsoWeek(date: Date): number {
 }
 
 /* ━━━ Main View Header ━━━ */
-function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName, customLists, customListCount, onRenameCustomList }: {
+function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName, customLists, customListCount, onRenameCustomList, titleOverride, countOverride }: {
   currentView: string
   isMobile: boolean
   onToggleSidebar: () => void
@@ -3208,6 +3297,8 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
   customLists?: { id: string; name: string; color: string }[]
   customListCount?: number
   onRenameCustomList?: (id: string, name: string) => void
+  titleOverride?: string
+  countOverride?: number
 }) {
   const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState('')
@@ -3232,7 +3323,10 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
   let count: number
   const isCustom = currentView.startsWith('custom:')
   const customListId = isCustom ? currentView.slice(7) : null
-  if (isCustom) {
+  if (titleOverride) {
+    title = titleOverride
+    count = countOverride || 0
+  } else if (isCustom) {
     const list = customLists?.find(l => l.id === customListId)
     title = list?.name || 'Liste'
     count = customListCount || 0
