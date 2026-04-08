@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react'
-import { useQueryState, parseAsStringLiteral } from 'nuqs'
+import { useQueryState, parseAsString } from 'nuqs'
 import { useTodos } from './hooks/useTodos'
 import { useEmployees } from './hooks/useEmployees'
 import { useShopping } from './hooks/useShopping'
@@ -18,7 +18,7 @@ import {
 import {
   Plus, Check, Trash2, ChevronDown, ChevronRight, AlertTriangle,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
-  Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Phone, Pin, Truck, ArrowLeft, Printer, User, Briefcase,
+  Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
   Mic, MicOff, Keyboard,
 } from 'lucide-react'
 
@@ -78,6 +78,9 @@ export default function App() {
   const [addingCall, setAddingCall] = useState(false)
   const [editingCall, setEditingCall] = useState<PhoneCall | null>(null)
   const [addingTaskCrew, setAddingTaskCrew] = useState(false)
+  const [addingTaskInbox, setAddingTaskInbox] = useState(false)
+  const [addingTaskToday, setAddingTaskToday] = useState(false)
+  const [addingTaskUpcoming, setAddingTaskUpcoming] = useState(false)
   const [addingCode, setAddingCode] = useState(false)
   const [addingRepair, setAddingRepair] = useState(false)
   const [addingTransport, setAddingTransport] = useState(false)
@@ -97,13 +100,19 @@ export default function App() {
   const [quickCreate, setQuickCreate] = useState(false)
   const [currentUser, setCurrentUser] = useState<'thomas' | 'maria'>(() => (localStorage.getItem('todo-user') as any) || 'thomas')
 
-  // Keyboard shortcut: N or Ctrl+N to quick-create
+  // Keyboard shortcut: Cmd+K (Mac) / Ctrl+K (PC) to quick-create, or plain N when not typing
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Don't trigger when typing in inputs
       const tag = (e.target as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      if (e.key === 'n' || e.key === 'N' || (e.key === 'n' && (e.ctrlKey || e.metaKey))) {
+      const isTyping = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+      // Cmd/Ctrl+K works even inside inputs
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault()
+        setQuickCreate(true)
+        return
+      }
+      // Plain N only when not typing
+      if (!isTyping && (e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault()
         setQuickCreate(true)
       }
@@ -137,8 +146,8 @@ export default function App() {
   const thomasEmp = useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('thomas')), [employees])
   const mariaEmp = useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('maria')), [employees])
   const kimEmp = useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('kim schrøder')), [employees])
-  const jesperEmp = useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('jesper')), [employees])
-  const steenEmp = useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('steen')), [employees])
+  void useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('jesper')), [employees])
+  void useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('steen')), [employees])
 
   const thomasTasks = useMemo(() => tasks.filter(t => t.assigned_to === thomasEmp?.id), [tasks, thomasEmp])
   const mariaTasks = useMemo(() => tasks.filter(t => t.assigned_to === mariaEmp?.id), [tasks, mariaEmp])
@@ -210,14 +219,60 @@ export default function App() {
   const dueTodayTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.due_date === todayStr), [active, todayStr])
   const upcomingTasks = useMemo(() => tasks.filter(t => t.due_date && t.due_date > todayStr).sort((a,b) => (a.due_date || '').localeCompare(b.due_date || '')), [tasks, todayStr])
   const todayTasks = useMemo(() => [...overdue, ...dueTodayTasks.filter(t => !overdue.includes(t))], [overdue, dueTodayTasks])
+  // "Denne uge" — tasks due within 7 days (including today + overdue)
+  const weekEndStr = useMemo(() => {
+    const d = new Date(); d.setDate(d.getDate() + 7)
+    return d.toISOString().slice(0,10)
+  }, [])
+  const weekTasks = useMemo(() => {
+    return [...overdue, ...tasks.filter(t => t.due_date && t.due_date >= todayStr && t.due_date <= weekEndStr && !overdue.includes(t))]
+      .sort((a,b) => (a.due_date || '').localeCompare(b.due_date || ''))
+  }, [overdue, tasks, todayStr, weekEndStr])
+  // Group upcoming tasks by due date
+  const upcomingGrouped = useMemo(() => {
+    const groups = new Map<string, Todo[]>()
+    upcomingTasks.forEach(t => {
+      const k = t.due_date || 'no-date'
+      groups.set(k, [...(groups.get(k) || []), t])
+    })
+    return [...groups.entries()]
+  }, [upcomingTasks])
 
   // Sidebar / view state — persisted in URL via nuqs so refresh keeps the view
-  const VIEW_KEYS = ['today','upcoming','inbox','thomas','maria','crew','phone','code','repair','transport','shop','ideas'] as const
-  type ViewKey = typeof VIEW_KEYS[number]
-  const [currentView, setCurrentViewQS] = useQueryState('view', parseAsStringLiteral(VIEW_KEYS).withDefault('today'))
-  const setCurrentView = (v: ViewKey) => { setCurrentViewQS(v) }
+  const [currentView, setCurrentViewQS] = useQueryState('view', parseAsString.withDefault('today'))
+  const setCurrentView = (v: string) => { setCurrentViewQS(v) }
   const [sidebarOpen, setSidebarOpen] = useState(winW >= 768)
   useEffect(() => { if (winW >= 768) setSidebarOpen(true) }, [winW])
+
+  // Custom lists — user-defined lists persisted in localStorage
+  type CustomList = { id: string; name: string; color: string }
+  const [customLists, setCustomLists] = useState<CustomList[]>(() => {
+    try { return JSON.parse(localStorage.getItem('customLists') || '[]') } catch { return [] }
+  })
+  const saveCustomLists = (lists: CustomList[]) => {
+    setCustomLists(lists)
+    localStorage.setItem('customLists', JSON.stringify(lists))
+  }
+  const [creatingList, setCreatingList] = useState(false)
+  const addCustomList = (name: string, color: string) => {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    saveCustomLists([...customLists, { id, name, color }])
+  }
+  const deleteCustomList = (id: string) => {
+    saveCustomLists(customLists.filter(l => l.id !== id))
+    if (currentView === `custom:${id}`) setCurrentView('today')
+  }
+  // Map custom lists to their tasks
+  const customListTasks = useMemo(() => {
+    const m = new Map<string, Todo[]>()
+    customLists.forEach(l => {
+      m.set(l.id, active.filter(t => t.category === `custom:${l.id}`).sort((a,b) => {
+        const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
+        return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      }))
+    })
+    return m
+  }, [active, customLists])
 
   // Filter popup content by the selected person
   const popupFilter = (t: Todo) => {
@@ -343,6 +398,7 @@ export default function App() {
           setCurrentView={(v) => { setCurrentView(v); if (isMobile) setSidebarOpen(false) }}
           counts={{
             today: todayTasks.length,
+            week: weekTasks.length,
             upcoming: upcomingTasks.length,
             inbox: unassignedTasks.length,
             thomas: thomasTasks.length,
@@ -357,6 +413,7 @@ export default function App() {
           }}
           dueCounts={{
             today: todayTasks.length,
+            week: dueFlagCount(weekTasks),
             thomas: dueFlagCount(thomasTasks),
             maria: dueFlagCount(mariaTasks),
             crew: dueFlagCount(crewTasks),
@@ -374,6 +431,11 @@ export default function App() {
           onQuickCreate={() => setQuickCreate(true)}
           onShowIdeas={() => setShowIdeas(true)}
           onShowPrintTransport={() => setShowPrintTransport(true)}
+          customLists={customLists}
+          customListCounts={Object.fromEntries(customLists.map(l => [l.id, customListTasks.get(l.id)?.length || 0]))}
+          customListDueCounts={Object.fromEntries(customLists.map(l => [l.id, dueFlagCount(customListTasks.get(l.id) || [])]))}
+          onCreateList={() => setCreatingList(true)}
+          onDeleteCustomList={deleteCustomList}
           onDropTodo={async (view, id) => {
             if (view === 'thomas') await updateTodo(id, { assigned_to: thomasEmp?.id || null, category: null })
             else if (view === 'maria') await updateTodo(id, { assigned_to: mariaEmp?.id || null, category: null })
@@ -381,6 +443,7 @@ export default function App() {
             else if (view === 'code') await updateTodo(id, { category: 'CODE' })
             else if (view === 'repair') await updateTodo(id, { category: 'REPAIR' })
             else if (view === 'inbox') await updateTodo(id, { assigned_to: null, category: null })
+            else if (view.startsWith('custom:')) await updateTodo(id, { category: view })
           }}
         />
 
@@ -396,7 +459,7 @@ export default function App() {
             isMobile={isMobile}
             onToggleSidebar={() => setSidebarOpen(o => !o)}
             counts={{
-              today: todayTasks.length, upcoming: upcomingTasks.length, inbox: unassignedTasks.length,
+              today: todayTasks.length, week: weekTasks.length, upcoming: upcomingTasks.length, inbox: unassignedTasks.length,
               thomas: thomasTasks.length, maria: mariaTasks.length, crew: crewTasks.length,
               phone: activeCalls.length, code: codeTasks.length, repair: repairTasks.length,
               transport: activeTransport.length, shop: pendShop.length,
@@ -404,6 +467,8 @@ export default function App() {
             }}
             thomasName={firstName(thomasEmp, 'Thomas')}
             mariaName={firstName(mariaEmp, 'Maria')}
+            customLists={customLists}
+            customListCount={currentView.startsWith('custom:') ? (customListTasks.get(currentView.slice(7))?.length || 0) : 0}
           />
           <div style={{ flex:1, overflowY:'auto' }}>
             <div style={{ maxWidth:900, margin:'0 auto', padding: isMobile ? '16px' : '24px 40px 48px' }}>
@@ -424,30 +489,102 @@ export default function App() {
                 {mariaTasks.length === 0 && !addingTaskMaria && <Empty text="Ingen aktive opgaver" />}
               </>)}
 
-              {/* Crew */}
+              {/* Crew — grouped by crew member */}
               {currentView === 'crew' && (<>
-                {addingTaskCrew && <CrewTaskForm employees={employees} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} jesperEmp={jesperEmp} kimEmp={kimEmp} steenEmp={steenEmp} onDone={async d => { await addTodo(d); setAddingTaskCrew(false) }} onCancel={() => setAddingTaskCrew(false)} />}
+                {addingTaskCrew && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo(d); setAddingTaskCrew(false) }} onCancel={() => setAddingTaskCrew(false)} />}
                 {!addingTaskCrew && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskCrew(true)} />}
-                {crewTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {(() => {
+                  // Group crew tasks by assigned_to
+                  const grouped = new Map<string, Todo[]>()
+                  crewTasks.forEach(t => {
+                    const k = t.assigned_to || 'unknown'
+                    grouped.set(k, [...(grouped.get(k) || []), t])
+                  })
+                  // Sort groups by employee name
+                  const sortedGroups = [...grouped.entries()].sort((a, b) => {
+                    const na = employees.get(a[0])?.navn || ''
+                    const nb = employees.get(b[0])?.navn || ''
+                    return na.localeCompare(nb)
+                  })
+                  return sortedGroups.map(([empId, empTasks]) => {
+                    const emp = employees.get(empId)
+                    const empColor = hashColor(empId)
+                    return (
+                      <div key={empId} style={{ marginBottom:20 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 4px 12px', borderBottom:`1px solid ${C.border}`, marginBottom:10 }}>
+                          {emp && <Avatar name={emp.navn} id={empId} sz={28} />}
+                          <span style={{ fontSize:14, fontWeight:700, color:C.text }}>{emp?.navn || 'Ukendt'}</span>
+                          {emp?.location && <span style={{ fontSize:11, color:C.textMuted }}>({emp.location})</span>}
+                          <span style={{ fontSize:11, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 8px', borderRadius:10, marginLeft:'auto' }}>{empTasks.length}</span>
+                          <div style={{ width:3, height:16, borderRadius:2, background:empColor }} />
+                        </div>
+                        {empTasks.map(t => <TaskCard key={t.id} t={t} emp={emp} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                      </div>
+                    )
+                  })
+                })()}
                 {crewTasks.length === 0 && !addingTaskCrew && <Empty text="Ingen crew-opgaver" />}
               </>)}
 
               {/* Inbox */}
               {currentView === 'inbox' && (<>
+                {addingTaskInbox && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo(d); setAddingTaskInbox(false) }} onCancel={() => setAddingTaskInbox(false)} />}
+                {!addingTaskInbox && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskInbox(true)} />}
                 {unassignedTasks.map(t => <TaskCard key={t.id} t={t} emp={undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
-                {unassignedTasks.length === 0 && <Empty text="Indbakken er tom" />}
+                {unassignedTasks.length === 0 && !addingTaskInbox && <Empty text="Indbakken er tom" />}
               </>)}
 
               {/* Today */}
               {currentView === 'today' && (<>
+                {addingTaskToday && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, due_date: d.due_date || todayStr }); setAddingTaskToday(false) }} onCancel={() => setAddingTaskToday(false)} />}
+                {!addingTaskToday && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskToday(true)} />}
                 {todayTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
-                {todayTasks.length === 0 && <Empty text="Ingen opgaver i dag — godt gået!" />}
+                {todayTasks.length === 0 && !addingTaskToday && <Empty text="Ingen opgaver i dag — godt gået!" />}
               </>)}
 
-              {/* Upcoming */}
+              {/* Denne uge */}
+              {currentView === 'week' && (<>
+                {addingTaskUpcoming && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo(d); setAddingTaskUpcoming(false) }} onCancel={() => setAddingTaskUpcoming(false)} />}
+                {!addingTaskUpcoming && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskUpcoming(true)} />}
+                {weekTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {weekTasks.length === 0 && !addingTaskUpcoming && <Empty text="Ingen opgaver denne uge" />}
+              </>)}
+
+              {/* Upcoming — grouped by day with week-number markers */}
               {currentView === 'upcoming' && (<>
-                {upcomingTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
-                {upcomingTasks.length === 0 && <Empty text="Ingen kommende opgaver" />}
+                {addingTaskUpcoming && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo(d); setAddingTaskUpcoming(false) }} onCancel={() => setAddingTaskUpcoming(false)} />}
+                {!addingTaskUpcoming && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskUpcoming(true)} />}
+                {(() => {
+                  let lastWeek = -1
+                  return upcomingGrouped.map(([date, items]) => {
+                    const d = new Date(date + 'T00:00:00')
+                    const weekday = d.toLocaleDateString('da-DK', { weekday: 'long' })
+                    const dateLabel = d.toLocaleDateString('da-DK', { day:'numeric', month:'long' })
+                    const weekNo = getIsoWeek(d)
+                    const showWeekHeader = weekNo !== lastWeek
+                    lastWeek = weekNo
+                    return (
+                      <div key={date}>
+                        {showWeekHeader && (
+                          <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:22, marginBottom:8 }}>
+                            <div style={{ fontSize:11, fontWeight:800, color:C.amber, background:C.amber+'18', border:`1px solid ${C.amber}40`, padding:'4px 12px', borderRadius:14, letterSpacing:'0.06em' }}>UGE {weekNo}</div>
+                            <div style={{ flex:1, height:1, background:C.border }} />
+                          </div>
+                        )}
+                        <div style={{ marginBottom:18 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 4px 10px', borderBottom:`1px solid ${C.border}`, marginBottom:10 }}>
+                            <Calendar style={{ width:14, height:14, color:C.blue }} />
+                            <span style={{ fontSize:13, fontWeight:700, color:C.text, textTransform:'capitalize' }}>{weekday}</span>
+                            <span style={{ fontSize:11, color:C.textMuted }}>{dateLabel} (uge {weekNo})</span>
+                            <span style={{ fontSize:11, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 8px', borderRadius:10, marginLeft:'auto' }}>{items.length}</span>
+                          </div>
+                          {items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+                {upcomingGrouped.length === 0 && !addingTaskUpcoming && <Empty text="Ingen kommende opgaver" />}
               </>)}
 
               {/* Phone */}
@@ -467,17 +604,17 @@ export default function App() {
 
               {/* Code */}
               {currentView === 'code' && (<>
-                {addingCode && <CodeTaskForm color={C.purple} titlePlaceholder="Site der skal codes..." onDone={async d => { await addTodo({ ...d, category: 'CODE' }); setAddingCode(false) }} onCancel={() => setAddingCode(false)} />}
+                {addingCode && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: 'CODE' }); setAddingCode(false) }} onCancel={() => setAddingCode(false)} />}
                 {!addingCode && <AddRow label="Ny code-opgave" onClick={() => setAddingCode(true)} />}
-                {codeTasks.map(t => <CodeTaskCard key={t.id} t={t} color={C.purple} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {codeTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
                 {codeTasks.length === 0 && !addingCode && <Empty text="Ingen code opgaver" />}
               </>)}
 
               {/* Repair */}
               {currentView === 'repair' && (<>
-                {addingRepair && <CodeTaskForm color={C.amber} titlePlaceholder="Hvad skal repareres..." onDone={async d => { await addTodo({ ...d, category: 'REPAIR' }); setAddingRepair(false) }} onCancel={() => setAddingRepair(false)} />}
+                {addingRepair && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: 'REPAIR' }); setAddingRepair(false) }} onCancel={() => setAddingRepair(false)} />}
                 {!addingRepair && <AddRow label="Tilføj reparation" onClick={() => setAddingRepair(true)} />}
-                {repairTasks.map(t => <CodeTaskCard key={t.id} t={t} color={C.amber} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {repairTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
                 {repairTasks.length === 0 && !addingRepair && <Empty text="Intet at reparere" />}
               </>)}
 
@@ -538,160 +675,27 @@ export default function App() {
                 {ideaGroups.length === 0 && <Empty text="Ingen idéer" />}
               </>)}
 
+              {/* Custom lists */}
+              {currentView.startsWith('custom:') && (() => {
+                const listId = currentView.slice(7)
+                const list = customLists.find(l => l.id === listId)
+                if (!list) return <Empty text="Listen findes ikke" />
+                const items = customListTasks.get(listId) || []
+                return (
+                  <>
+                    {addingTaskThomas && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: `custom:${listId}` }); setAddingTaskThomas(false) }} onCancel={() => setAddingTaskThomas(false)} />}
+                    {!addingTaskThomas && <AddRow label={`Tilføj til ${list.name}`} onClick={() => setAddingTaskThomas(true)} />}
+                    {items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                    {items.length === 0 && !addingTaskThomas && <Empty text="Listen er tom — træk opgaver hertil eller tilføj en ny" />}
+                  </>
+                )
+              })()}
+
             </div>
           </div>
         </div>
       </div>
 
-      {/* Old grid removed */}
-      <div style={{ display:'none' }}>
-
-          {/* COL 1 — Thomas */}
-          <Column title={`TODO ${firstName(thomasEmp, 'Thomas')}`} count={thomasTasks.length} color={C.blue} defaultCollapsed
-            colId="thomas"
-            dueCount={dueFlagCount(thomasTasks)}
-            onDropTodo={async (id) => { await updateTodo(id, { assigned_to: thomasEmp?.id || null, category: null }) }}
-            action={<AddBtn label="Ny opgave" onClick={() => setAddingTaskThomas(true)} />}>
-            {addingTaskThomas && <TaskForm employees={employees} defaultAssign={thomasEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || thomasEmp?.id || null }); setAddingTaskThomas(false) }} onCancel={() => setAddingTaskThomas(false)} />}
-            {thomasTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
-            {unassignedTasks.length > 0 && (
-              <Collapse label={`Ikke tildelt (${unassignedTasks.length})`} open={true}>
-                {unassignedTasks.map(t => <TaskCard key={t.id} t={t} emp={undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
-              </Collapse>
-            )}
-            {thomasTasks.length === 0 && unassignedTasks.length === 0 && !addingTaskThomas && <Empty text="Ingen aktive opgaver" />}
-          </Column>
-
-          {/* COL 2 — Maria */}
-          <Column title={`TODO ${firstName(mariaEmp, 'Maria')}`} count={mariaTasks.length} color={C.pink} defaultCollapsed
-            colId="maria"
-            dueCount={dueFlagCount(mariaTasks)}
-            onDropTodo={async (id) => { await updateTodo(id, { assigned_to: mariaEmp?.id || null, category: null }) }}
-            action={<AddBtn label="Ny opgave" onClick={() => setAddingTaskMaria(true)} />}>
-            {addingTaskMaria && <TaskForm employees={employees} defaultAssign={mariaEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || mariaEmp?.id || null }); setAddingTaskMaria(false) }} onCancel={() => setAddingTaskMaria(false)} />}
-            {mariaTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
-            {mariaTasks.length === 0 && !addingTaskMaria && <Empty text="Ingen aktive opgaver" />}
-          </Column>
-
-          {/* COL 3 — Phone Calls */}
-          <Column title="Ringes til" count={activeCalls.length} color={C.amber} defaultCollapsed
-            colId="phone"
-            dueCount={dueFlagCount(activeCalls)}
-            action={<AddBtn label="Tilføj" onClick={() => setAddingCall(true)} />}>
-            {addingCall && <PhoneCallForm employees={employees} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await calls.addCall(d); setAddingCall(false) }} onCancel={() => setAddingCall(false)} />}
-            {activeCalls.map(c => <PhoneCallCard key={c.id} call={c} emp={c.assigned_to ? employees.get(c.assigned_to) : undefined} onCheck={() => calls.toggleCompleted(c.id, true)} onDel={() => calls.deleteCall(c.id)} onClick={() => setEditingCall(c)} />)}
-            {activeCalls.length === 0 && !addingCall && <Empty text="Ingen at ringe til" />}
-            {completedCalls.length > 0 && (
-              <Collapse label={`Ringet (${completedCalls.length})`} open={false}>
-                {completedCalls.map(c => <PhoneCallCard key={c.id} call={c} done emp={c.assigned_to ? employees.get(c.assigned_to) : undefined} onCheck={() => calls.toggleCompleted(c.id, false)} onDel={() => calls.deleteCall(c.id)} onClick={() => setEditingCall(c)} />)}
-              </Collapse>
-            )}
-          </Column>
-
-          {/* COL 5 — Crew */}
-          <Column title="CREW" count={crewTasks.length} color={C.cyan} defaultCollapsed
-            colId="crew"
-            dueCount={dueFlagCount(crewTasks)}
-            onDropTodo={async (id) => { await updateTodo(id, { category: null }) }}
-            action={<AddBtn label="Ny opgave" onClick={() => setAddingTaskCrew(true)} />}>
-            {addingTaskCrew && <CrewTaskForm employees={employees} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} jesperEmp={jesperEmp} kimEmp={kimEmp} steenEmp={steenEmp} onDone={async d => { await addTodo(d); setAddingTaskCrew(false) }} onCancel={() => setAddingTaskCrew(false)} />}
-            {crewTasks.map(t => {
-              const emp = t.assigned_to ? employees.get(t.assigned_to) : undefined
-              const firstName = emp ? emp.navn.split(' ')[0] : ''
-              return (
-                <div key={t.id} onClick={() => setEditingTodo(t)} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, background:C.card, border:`1px solid ${C.border}`, cursor:'pointer', transition:'all 0.15s' }}
-                  onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
-                  onMouseLeave={e => e.currentTarget.style.background = C.card}>
-                  <button onClick={e => { e.stopPropagation(); updateTodo(t.id, { resolved: true }) }} style={{ width:18, height:18, borderRadius:5, border:`2px solid ${C.cyan}60`, background:'transparent', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0 }} />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                      {firstName && <span style={{ fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, background: hashColor(t.assigned_to || '')+'20', color: hashColor(t.assigned_to || '') }}>{firstName}</span>}
-                      <span style={{ fontSize:12, fontWeight:500, color:C.text }}>{t.title}</span>
-                    </div>
-                    <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
-                      {t.priority && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:getPriorityColor(t.priority)+'20', color:getPriorityColor(t.priority) }}>{getPriorityLabel(t.priority)}</span>}
-                      {t.due_date && <DuePill date={t.due_date} />}
-                    </div>
-                  </div>
-                  {emp && <Avatar name={emp.navn} id={emp.id} sz={22} />}
-                  <button onClick={e => { e.stopPropagation(); deleteTodo(t.id) }} style={{ padding:2, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.25, transition:'all 0.15s' }}
-                    onMouseEnter={e => { e.currentTarget.style.opacity='1'; e.currentTarget.style.color=C.red }}
-                    onMouseLeave={e => { e.currentTarget.style.opacity='0.25'; e.currentTarget.style.color=C.textMuted }}>
-                    <Trash2 style={{ width:11, height:11 }} />
-                  </button>
-                </div>
-              )
-            })}
-            {crewTasks.length === 0 && <Empty text="Ingen crew-opgaver" />}
-          </Column>
-
-          {/* COL — CODE */}
-          <Column title="CODE" count={codeTasks.length} color={C.purple} defaultCollapsed
-            colId="CODE"
-            dueCount={dueFlagCount(codeTasks)}
-            onDropTodo={async (id) => { await updateTodo(id, { category: 'CODE' }) }}
-            action={<AddBtn label="Ny code" onClick={() => setAddingCode(true)} />}>
-            {addingCode && <CodeTaskForm color={C.purple} titlePlaceholder="Site der skal codes..." onDone={async d => { await addTodo({ ...d, category: 'CODE' }); setAddingCode(false) }} onCancel={() => setAddingCode(false)} />}
-            {codeTasks.map(t => <CodeTaskCard key={t.id} t={t} color={C.purple} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
-            {codeTasks.length === 0 && !addingCode && <Empty text="Ingen code opgaver" />}
-          </Column>
-
-          {/* COL — REPAIR */}
-          <Column title="Repareres" count={repairTasks.length} color={C.amber} defaultCollapsed
-            colId="REPAIR"
-            dueCount={dueFlagCount(repairTasks)}
-            onDropTodo={async (id) => { await updateTodo(id, { category: 'REPAIR' }) }}
-            action={<AddBtn label="Tilføj" onClick={() => setAddingRepair(true)} />}>
-            {addingRepair && <CodeTaskForm color={C.amber} titlePlaceholder="Hvad skal repareres..." onDone={async d => { await addTodo({ ...d, category: 'REPAIR' }); setAddingRepair(false) }} onCancel={() => setAddingRepair(false)} />}
-            {repairTasks.map(t => <CodeTaskCard key={t.id} t={t} color={C.amber} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
-            {repairTasks.length === 0 && !addingRepair && <Empty text="Intet at reparere" />}
-          </Column>
-
-          {/* COL 4 — Transport ØST/VEST */}
-          <Column title="ØST / VEST" count={activeTransport.length} color={C.cyan} defaultCollapsed
-            action={<AddBtn label="Tilføj" onClick={() => setAddingTransport(true)} />}>
-            {addingTransport && <TransportForm employees={employees} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} kimId={kimEmp?.id} onDone={async d => { await transport.addItem(d); setAddingTransport(false) }} onCancel={() => setAddingTransport(false)} />}
-            {toWest.length > 0 && (
-              <div>
-                <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 0', fontSize:11, fontWeight:700, color:C.amber, textTransform:'uppercase' }}>
-                  <ArrowRight style={{ width:14, height:14 }} /> TIL VEST ({toWest.length})
-                </div>
-                {toWest.map(i => <TransportCard key={i.id} item={i} emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => transport.toggleCompleted(i.id, true)} onDel={() => transport.deleteItem(i.id)} onClick={() => setEditingTransport(i)} />)}
-              </div>
-            )}
-            {toEast.length > 0 && (
-              <div>
-                <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 0', fontSize:11, fontWeight:700, color:C.blue, textTransform:'uppercase' }}>
-                  <ArrowLeft style={{ width:14, height:14 }} /> TIL ØST ({toEast.length})
-                </div>
-                {toEast.map(i => <TransportCard key={i.id} item={i} emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => transport.toggleCompleted(i.id, true)} onDel={() => transport.deleteItem(i.id)} onClick={() => setEditingTransport(i)} />)}
-              </div>
-            )}
-            {activeTransport.length === 0 && !addingTransport && <Empty text="Intet at transportere" />}
-            {completedTransport.length > 0 && (
-              <Collapse label={`Leveret (${completedTransport.length})`} open={false}>
-                {completedTransport.map(i => <TransportCard key={i.id} item={i} done emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => transport.toggleCompleted(i.id, false)} onDel={() => transport.deleteItem(i.id)} onClick={() => setEditingTransport(i)} />)}
-              </Collapse>
-            )}
-          </Column>
-
-          {/* COL 6 — Shopping */}
-          <Column title="Indkøb" count={pendShop.length} color={C.green} defaultCollapsed
-            colId="shop"
-            dueCount={dueFlagCount(pendShop)}
-            action={<AddBtn label="Tilføj" onClick={() => setAddingShop(true)} />}>
-            {addingShop && <ShopForm onDone={async (t,n,u,d,urg) => { await shop.addItem(t,n,u,d,urg); setAddingShop(false) }} onCancel={() => setAddingShop(false)} />}
-            {pendShop.map(i => <ShopCard key={i.id} item={i} emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => shop.togglePurchased(i.id, true)} onDel={() => shop.deleteItem(i.id)} onClick={() => setEditingShop(i)} />)}
-            {pendShop.length === 0 && !addingShop && <Empty text="Listen er tom" />}
-            {doneShop.length > 0 && (
-              <Collapse label={`Købt (${doneShop.length})`} open={false}>
-                {doneShop.map(i => <ShopCard key={i.id} item={i} done emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => shop.togglePurchased(i.id, false)} onDel={() => shop.deleteItem(i.id)} onClick={() => setEditingShop(i)} />)}
-              </Collapse>
-            )}
-          </Column>
-
-
-      </div>
 
       {/* ── Idea Detail Modal ── */}
       {selectedIdea && (
@@ -954,7 +958,7 @@ export default function App() {
         <LandingOverlay onSelect={(idx) => {
           setShowLanding(false)
           // Map landing index to view key + set URL via nuqs so refresh restores
-          const viewMap: ViewKey[] = ['thomas','maria','crew','transport','phone','shop']
+          const viewMap: string[] = ['thomas','maria','crew','transport','phone','shop']
           const target = viewMap[idx] || 'today'
           setCurrentView(target)
           // Open due-popup only when a person is selected (Thomas/Maria/Crew)
@@ -962,6 +966,17 @@ export default function App() {
           else if (idx === 1) setDuePopupFor('maria')
           else if (idx === 2) setDuePopupFor('crew')
         }} onDismiss={() => { setShowLanding(false); setCurrentView('today') }} />
+      )}
+
+      {/* ── Create List Modal ── */}
+      {creatingList && (
+        <CreateListModal
+          onClose={() => setCreatingList(false)}
+          onCreate={(name, color) => {
+            addCustomList(name, color)
+            setCreatingList(false)
+          }}
+        />
       )}
 
       {/* ── Floating Action Button (mobile) ── */}
@@ -1000,76 +1015,6 @@ function LiveClock() {
       <div style={{ fontSize:28, fontWeight:300, letterSpacing:'0.02em', color:C.text }}>{n.toLocaleTimeString('da-DK',{hour:'2-digit',minute:'2-digit'})}</div>
       <div style={{ fontSize:11, color:C.textMuted, textTransform:'capitalize' }}>{n.toLocaleDateString('da-DK',{weekday:'long',day:'numeric',month:'long'})}</div>
     </div>
-  )
-}
-
-function Column({ title, count, color, action, children, defaultCollapsed, colId, onDropTodo, dueCount }: { title:string; count:number; color:string; action?:ReactNode; children:ReactNode; defaultCollapsed?:boolean; colId?:string; onDropTodo?:(todoId:string)=>void|Promise<any>; dueCount?:number }) {
-  const pinKey = colId || title
-  const [pinned] = useState(() => {
-    try { const p = JSON.parse(localStorage.getItem('pinnedColumns') || '[]'); return p.includes(pinKey) } catch { return false }
-  })
-  const [collapsed, setCollapsed] = useState(pinned ? false : (defaultCollapsed || false))
-  const [dragOver, setDragOver] = useState(false)
-
-  const togglePin = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    try {
-      const curr: string[] = JSON.parse(localStorage.getItem('pinnedColumns') || '[]')
-      const next = curr.includes(pinKey) ? curr.filter(c => c !== pinKey) : [...curr, pinKey]
-      localStorage.setItem('pinnedColumns', JSON.stringify(next))
-      if (!curr.includes(pinKey)) setCollapsed(false)
-      // Force re-render by toggling a state
-      window.dispatchEvent(new Event('storage'))
-    } catch { /* ignore */ }
-  }
-
-  const isPinned = (() => { try { return JSON.parse(localStorage.getItem('pinnedColumns') || '[]').includes(pinKey) } catch { return false } })()
-
-  const dropHandlers = onDropTodo ? {
-    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('application/x-todo-id')) { e.preventDefault(); setDragOver(true) } },
-    onDragLeave: () => setDragOver(false),
-    onDrop: async (e: React.DragEvent) => {
-      e.preventDefault(); setDragOver(false)
-      const id = e.dataTransfer.getData('application/x-todo-id')
-      if (id) await onDropTodo(id)
-    },
-  } : {}
-
-  return (
-    <div data-column {...dropHandlers} style={{ background:C.surface, borderRadius:16, border:`1px solid ${dragOver ? color : C.border}`, boxShadow: dragOver ? `0 0 0 2px ${color}40` : 'none', overflow:'hidden', transition:'border-color 0.15s, box-shadow 0.15s' }}>
-      {/* Header */}
-      <div onClick={() => setCollapsed(!collapsed)} style={{ padding:'16px 20px', borderBottom: collapsed ? 'none' : `1px solid ${C.border}`, display:'flex', alignItems:'center', gap:10, cursor:'pointer', userSelect:'none' }}>
-        <div style={{ width:4, height:20, borderRadius:2, background:color }} />
-        {collapsed ? <ChevronRight style={{ width:14, height:14, color:C.textMuted }} /> : <ChevronDown style={{ width:14, height:14, color:C.textMuted }} />}
-        <span style={{ fontSize:13, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.04em' }}>{title}</span>
-        <span style={{ fontSize:11, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 8px', borderRadius:10 }}>{count}</span>
-        {dueCount && dueCount > 0 ? (
-          <span title={`${dueCount} opgave(r) der kræver opmærksomhed`} style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:11, fontWeight:800, color:C.red, background:C.red+'18', border:`1px solid ${C.red}50`, padding:'1px 7px', borderRadius:10 }}>
-            <AlertTriangle style={{ width:11, height:11 }} /> ! {dueCount}
-          </span>
-        ) : null}
-        <button onClick={togglePin} style={{ padding:3, border:'none', background:'transparent', cursor:'pointer', color: isPinned ? C.amber : C.textMuted, opacity: isPinned ? 1 : 0.3, transition:'all 0.15s' }} title={isPinned ? 'Fjern fastlåsning' : 'Fastlås åben'}>
-          <Pin style={{ width:13, height:13 }} />
-        </button>
-        {action && <div style={{ marginLeft:'auto' }} onClick={e => e.stopPropagation()}>{action}</div>}
-      </div>
-      {/* Body */}
-      {!collapsed && (
-        <div style={{ padding:16, display:'flex', flexDirection:'column', gap:8, maxHeight:'calc(100vh - 220px)', overflowY:'auto' }}>
-          {children}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AddBtn({ label, onClick }: { label:string; onClick:()=>void }) {
-  return (
-    <button onClick={onClick} style={{ display:'flex', alignItems:'center', gap:4, padding:'6px 14px', borderRadius:8, fontSize:11, fontWeight:700, color:'#fff', background:C.red, border:'none', cursor:'pointer', transition:'all 0.15s', textTransform:'uppercase', letterSpacing:'0.04em' }}
-      onMouseEnter={e => { e.currentTarget.style.background = '#d44' }}
-      onMouseLeave={e => { e.currentTarget.style.background = C.red }}>
-      <Plus style={{ width:14, height:14 }} /> {label}
-    </button>
   )
 }
 
@@ -1325,6 +1270,7 @@ function TaskCard({ t, emp, onDone, onDel, onClick }: { t:Todo; emp?:Employee; o
 }
 
 /* ━━━ CODE / REPAIR Task Card ━━━ */
+// @ts-expect-error -- kept for potential re-use
 function CodeTaskCard({ t, onDone, onDel, onClick, color }: { t:Todo; onDone:()=>void; onDel:()=>void; onClick?:()=>void; color:string }) {
   const od = isOverdue(t.due_date)
   const title = decodeHtmlEntities(t.title)
@@ -1360,6 +1306,7 @@ function CodeTaskCard({ t, onDone, onDel, onClick, color }: { t:Todo; onDone:()=
 }
 
 /* ━━━ CODE / REPAIR Task Form ━━━ */
+// @ts-expect-error -- kept for potential re-use
 function CodeTaskForm({ onDone, onCancel, color, titlePlaceholder }: { onDone:(d:Partial<Todo>)=>Promise<any>; onCancel:()=>void; color:string; titlePlaceholder:string }) {
   const [title, sT] = useState('')
   const [desc, sDe] = useState('')
@@ -1935,7 +1882,7 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
     sB(false)
   }
 
-  // Flyt til kolonne helper
+  // Flyt til liste helper
   const currentCol = category === 'CODE' ? 'CODE' : category === 'REPAIR' ? 'REPAIR' : (assign === thomasId ? 'thomas' : assign === mariaId ? 'maria' : assign ? 'crew' : 'none')
   const moveTo = (col: string) => {
     if (col === 'CODE') { sCat('CODE'); return }
@@ -1991,8 +1938,8 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
               onPickLocation={pickLocation}
             />
 
-            {/* ── SECTION: Flyt til kolonne ── */}
-            <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til kolonne" />
+            {/* ── SECTION: Flyt til liste ── */}
+            <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til liste" />
             <select value={currentCol} onChange={e => moveTo(e.target.value)} style={{ ...inputStyle, fontSize:12 }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
               <option value="thomas">TODO {employees.get(thomasId || '')?.navn || 'Thomas'}</option>
               <option value="maria">TODO {employees.get(mariaId || '')?.navn || 'Maria'}</option>
@@ -2543,6 +2490,7 @@ function EditPhoneCallModal({ call, employees, thomasId, mariaId, onClose, onSav
 }
 
 /* ━━━ Crew Task Form ━━━ */
+// @ts-expect-error -- kept for potential re-use
 function CrewTaskForm({ employees, thomasId, mariaId, jesperEmp, kimEmp, steenEmp, onDone, onCancel }: {
   employees:Map<string,Employee>; thomasId?:string; mariaId?:string
   jesperEmp?:Employee; kimEmp?:Employee; steenEmp?:Employee
@@ -2934,24 +2882,31 @@ function PersonalViewModal({ empId, empName, color, tasks, shopItems, phoneCalls
 
 /* ━━━ Landing Overlay ━━━ */
 /* ━━━ Sidebar ━━━ */
-type ViewKeyLocal = 'today' | 'upcoming' | 'inbox' | 'thomas' | 'maria' | 'crew' | 'phone' | 'code' | 'repair' | 'transport' | 'shop' | 'ideas'
+type BuiltInViewKey = 'today' | 'week' | 'upcoming' | 'inbox' | 'thomas' | 'maria' | 'crew' | 'phone' | 'code' | 'repair' | 'transport' | 'shop' | 'ideas'
+type ViewKeyLocal = BuiltInViewKey | `custom:${string}` | string
 
 function Sidebar({
   open, isMobile, onClose, currentView, setCurrentView, counts, dueCounts,
   thomasName, mariaName, thomasId, mariaId, gpsActive, connected,
   onQuickCreate, onShowIdeas, onShowPrintTransport, onDropTodo,
+  customLists, customListCounts, customListDueCounts, onCreateList, onDeleteCustomList,
 }: {
   open: boolean
   isMobile: boolean
   onClose: () => void
-  currentView: ViewKeyLocal
+  currentView: string
   setCurrentView: (v: ViewKeyLocal) => void
-  counts: Record<ViewKeyLocal, number>
-  dueCounts: Partial<Record<ViewKeyLocal, number>>
+  counts: Record<BuiltInViewKey, number>
+  dueCounts: Partial<Record<BuiltInViewKey, number>>
   thomasName: string
   mariaName: string
   thomasId?: string
   mariaId?: string
+  customLists?: { id: string; name: string; color: string }[]
+  customListCounts?: Record<string, number>
+  customListDueCounts?: Record<string, number>
+  onCreateList?: () => void
+  onDeleteCustomList?: (id: string) => void
   gpsActive: boolean
   connected: boolean
   onQuickCreate: () => void
@@ -2982,8 +2937,8 @@ function Sidebar({
       <nav style={{ flex:1, overflowY:'auto', padding:'8px 8px 16px' }}>
         {/* Quick views */}
         <SidebarItem icon={<Calendar style={{ width:14, height:14 }} />} label="I dag" count={counts.today} active={currentView==='today'} color={C.red} highlight={(dueCounts.today || 0) > 0} onClick={() => setCurrentView('today')} />
+        <SidebarItem icon={<Calendar style={{ width:14, height:14 }} />} label="Denne uge" count={counts.week || 0} active={currentView==='week'} color={C.amber} highlight={(dueCounts.week || 0) > 0} onClick={() => setCurrentView('week')} />
         <SidebarItem icon={<ChevronRight style={{ width:14, height:14 }} />} label="Kommende" count={counts.upcoming} active={currentView==='upcoming'} color={C.blue} onClick={() => setCurrentView('upcoming')} />
-        <SidebarItem icon={<ShoppingCart style={{ width:14, height:14 }} />} label="Indbakke" count={counts.inbox} active={currentView==='inbox'} color={C.textMuted} onClick={() => setCurrentView('inbox')} onDropTodo={id => onDropTodo('inbox', id)} />
 
         {/* Personer */}
         <div style={{ fontSize:10, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 10px 6px' }}>Personer</div>
@@ -2998,10 +2953,39 @@ function Sidebar({
         <SidebarItem dotColor={C.amber} label="Repareres" count={counts.repair} active={currentView==='repair'} color={C.amber} highlight={(dueCounts.repair || 0) > 0} onClick={() => setCurrentView('repair')} onDropTodo={id => onDropTodo('repair', id)} />
         <SidebarItem dotColor={C.cyan} label="Øst / Vest" count={counts.transport} active={currentView==='transport'} color={C.cyan} onClick={() => setCurrentView('transport')} />
         <SidebarItem dotColor={C.green} label="Indkøb" count={counts.shop} active={currentView==='shop'} color={C.green} highlight={(dueCounts.shop || 0) > 0} onClick={() => setCurrentView('shop')} />
-        <SidebarItem dotColor={C.purple} label="Idéer" count={counts.ideas} active={currentView==='ideas'} color={C.purple} onClick={() => setCurrentView('ideas')} />
+
+        {/* Custom lists */}
+        {customLists && customLists.length > 0 && customLists.map(list => (
+          <SidebarItem
+            key={list.id}
+            dotColor={list.color}
+            label={list.name}
+            count={customListCounts?.[list.id] || 0}
+            active={currentView === `custom:${list.id}`}
+            color={list.color}
+            highlight={(customListDueCounts?.[list.id] || 0) > 0}
+            onClick={() => setCurrentView(`custom:${list.id}` as ViewKeyLocal)}
+            onDropTodo={id => onDropTodo(`custom:${list.id}` as ViewKeyLocal, id)}
+            onDelete={onDeleteCustomList ? () => onDeleteCustomList(list.id) : undefined}
+          />
+        ))}
+
+        {/* Create new list button */}
+        {onCreateList && (
+          <button onClick={onCreateList} style={{
+            width:'100%', display:'flex', alignItems:'center', gap:10, padding:'7px 10px', borderRadius:6,
+            border:`1px dashed ${C.border}`, background:'transparent', color:C.textMuted, fontSize:12, fontWeight:600,
+            cursor:'pointer', marginTop:6, transition:'all 0.15s', textAlign:'left',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = C.red+'60'; e.currentTarget.style.color = C.red }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted }}>
+            <Plus style={{ width:12, height:12 }} /> Opret ny liste
+          </button>
+        )}
 
         {/* Tools */}
         <div style={{ fontSize:10, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 10px 6px' }}>Værktøjer</div>
+        <SidebarItem dotColor={C.purple} label="Idéer" count={counts.ideas} active={currentView==='ideas'} color={C.purple} onClick={() => setCurrentView('ideas')} />
         <button onClick={onShowPrintTransport} style={sidebarBtnStyle()}>
           <Printer style={{ width:14, height:14, color:C.cyan }} />
           <span style={{ flex:1, textAlign:'left' }}>Print Øst/Vest</span>
@@ -3032,11 +3016,12 @@ function sidebarBtnStyle(active?: boolean, bgHover?: string): React.CSSPropertie
   }
 }
 
-function SidebarItem({ icon, dotColor, label, count, active, color, highlight, onClick, onDropTodo }: {
+function SidebarItem({ icon, dotColor, label, count, active, color, highlight, onClick, onDropTodo, onDelete }: {
   icon?: ReactNode; dotColor?: string; label: string; count: number; active: boolean; color: string; highlight?: boolean
-  onClick: () => void; onDropTodo?: (id: string) => void | Promise<any>
+  onClick: () => void; onDropTodo?: (id: string) => void | Promise<any>; onDelete?: () => void
 }) {
   const [dragOver, setDragOver] = useState(false)
+  const [hover, setHover] = useState(false)
   const dropProps = onDropTodo ? {
     onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('application/x-todo-id')) { e.preventDefault(); setDragOver(true) } },
     onDragLeave: () => setDragOver(false),
@@ -3047,38 +3032,56 @@ function SidebarItem({ icon, dotColor, label, count, active, color, highlight, o
     },
   } : {}
   return (
-    <button onClick={onClick} {...dropProps} style={{
-      width:'100%', display:'flex', alignItems:'center', gap:10, padding:'7px 10px', borderRadius:6,
-      border: dragOver ? `1px dashed ${color}` : '1px solid transparent',
-      background: active ? C.card : dragOver ? color + '14' : 'transparent',
-      color: active ? C.text : C.textSec, fontSize:13, fontWeight: active ? 600 : 500,
-      cursor:'pointer', textAlign:'left', transition:'background 0.12s',
-      marginBottom:1,
-    }}
-      onMouseEnter={e => { if (!active && !dragOver) e.currentTarget.style.background = C.cardHover }}
-      onMouseLeave={e => { if (!active && !dragOver) e.currentTarget.style.background = 'transparent' }}>
-      {icon ? icon : dotColor && <div style={{ width:8, height:8, borderRadius:4, background:dotColor, flexShrink:0 }} />}
-      <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{label}</span>
-      {highlight ? (
-        <span style={{ fontSize:10, fontWeight:800, color:C.red, background:C.red+'18', border:`1px solid ${C.red}40`, padding:'0 6px', borderRadius:10, minWidth:18, textAlign:'center' }}>! {count}</span>
-      ) : count > 0 ? (
-        <span style={{ fontSize:11, fontWeight:600, color:C.textMuted, minWidth:18, textAlign:'right' }}>{count}</span>
-      ) : null}
-    </button>
+    <div {...dropProps} style={{ position:'relative' }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}>
+      <button onClick={onClick} style={{
+        width:'100%', display:'flex', alignItems:'center', gap:10, padding:'7px 10px', borderRadius:6,
+        border: dragOver ? `1px dashed ${color}` : '1px solid transparent',
+        background: active ? C.card : dragOver ? color + '14' : hover ? C.cardHover : 'transparent',
+        color: active ? C.text : C.textSec, fontSize:13, fontWeight: active ? 600 : 500,
+        cursor:'pointer', textAlign:'left', transition:'background 0.12s',
+        marginBottom:1,
+      }}>
+        {icon ? icon : dotColor && <div style={{ width:8, height:8, borderRadius:4, background:dotColor, flexShrink:0 }} />}
+        <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{label}</span>
+        {onDelete && hover ? (
+          <span onClick={e => { e.stopPropagation(); if (confirm(`Slet listen "${label}"?`)) onDelete() }} style={{ padding:2, color:C.textMuted, cursor:'pointer', display:'inline-flex' }}>
+            <Trash2 style={{ width:12, height:12 }} />
+          </span>
+        ) : highlight ? (
+          <span style={{ fontSize:10, fontWeight:800, color:C.red, background:C.red+'18', border:`1px solid ${C.red}40`, padding:'0 6px', borderRadius:10, minWidth:18, textAlign:'center' }}>! {count}</span>
+        ) : count > 0 ? (
+          <span style={{ fontSize:11, fontWeight:600, color:C.textMuted, minWidth:18, textAlign:'right' }}>{count}</span>
+        ) : null}
+      </button>
+    </div>
   )
 }
 
+/* ━━━ ISO week number ━━━ */
+function getIsoWeek(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = d.getUTCDay() || 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+}
+
 /* ━━━ Main View Header ━━━ */
-function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName }: {
-  currentView: ViewKeyLocal
+function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName, customLists, customListCount }: {
+  currentView: string
   isMobile: boolean
   onToggleSidebar: () => void
-  counts: Record<ViewKeyLocal, number>
+  counts: Record<BuiltInViewKey, number>
   thomasName: string
   mariaName: string
+  customLists?: { id: string; name: string; color: string }[]
+  customListCount?: number
 }) {
-  const TITLES: Record<ViewKeyLocal, string> = {
+  const TITLES: Record<BuiltInViewKey, string> = {
     today: 'I dag',
+    week: 'Denne uge',
     upcoming: 'Kommende',
     inbox: 'Indbakke',
     thomas: `TODO ${thomasName}`,
@@ -3091,6 +3094,18 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
     shop: 'Indkøb',
     ideas: 'Idéer & Inspiration',
   }
+  let title: string
+  let count: number
+  if (currentView.startsWith('custom:')) {
+    const listId = currentView.slice(7)
+    const list = customLists?.find(l => l.id === listId)
+    title = list?.name || 'Liste'
+    count = customListCount || 0
+  } else {
+    title = TITLES[currentView as BuiltInViewKey] || currentView
+    count = counts[currentView as BuiltInViewKey] || 0
+  }
+  const weekNo = getIsoWeek(new Date())
   return (
     <header style={{ padding: isMobile ? '12px 16px' : '20px 40px', borderBottom:`1px solid ${C.border}`, background:C.surface, display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
       {isMobile && (
@@ -3098,8 +3113,9 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
           <ChevronRight style={{ width:16, height:16 }} />
         </button>
       )}
-      <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight:700, color:C.text, letterSpacing:'-0.01em' }}>{TITLES[currentView]}</h1>
-      <span style={{ fontSize:12, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 10px', borderRadius:12 }}>{counts[currentView]}</span>
+      <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight:700, color:C.text, letterSpacing:'-0.01em' }}>{title}</h1>
+      <span style={{ fontSize:12, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 10px', borderRadius:12 }}>{count}</span>
+      <span style={{ fontSize:11, fontWeight:700, color:C.amber, background:C.amber+'15', border:`1px solid ${C.amber}35`, padding:'3px 10px', borderRadius:12, letterSpacing:'0.04em' }}>UGE {weekNo}</span>
       {!isMobile && <div style={{ marginLeft:'auto' }}><LiveClock /></div>}
     </header>
   )
@@ -3117,6 +3133,43 @@ function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
       onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted }}>
       <Plus style={{ width:14, height:14 }} /> {label}
     </button>
+  )
+}
+
+/* ━━━ Create List Modal ━━━ */
+function CreateListModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string, color: string) => void }) {
+  const [name, setName] = useState('')
+  const COLORS = [C.blue, C.pink, C.green, C.amber, C.purple, C.cyan, C.red]
+  const [color, setColor] = useState(COLORS[0])
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { ref.current?.focus() }, [])
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1500, padding:20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:C.surface, borderRadius:16, border:`1px solid ${C.border}`, maxWidth:420, width:'100%' }}>
+        <form onSubmit={e => { e.preventDefault(); if (name.trim()) onCreate(name.trim(), color) }} style={{ padding:24 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
+            <h2 style={{ fontSize:16, fontWeight:700, color:'#fff' }}>NY LISTE</h2>
+            <button type="button" onClick={onClose} style={{ padding:6, borderRadius:8, border:'none', background:C.card, color:C.textMuted, cursor:'pointer' }}>
+              <X style={{ width:16, height:16 }} />
+            </button>
+          </div>
+          <label style={{ display:'block', fontSize:11, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:6 }}>Navn</label>
+          <input ref={ref} placeholder="f.eks. Salg 2025" value={name} onChange={e => setName(e.target.value)} style={{ ...inputStyle, marginBottom:14 }} />
+          <label style={{ display:'block', fontSize:11, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:6 }}>Farve</label>
+          <div style={{ display:'flex', gap:8, marginBottom:20 }}>
+            {COLORS.map(c => (
+              <button key={c} type="button" onClick={() => setColor(c)} style={{
+                width:32, height:32, borderRadius:16, background:c, border: color === c ? `3px solid ${C.text}` : '3px solid transparent', cursor:'pointer', transition:'all 0.15s',
+              }} />
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button type="submit" disabled={!name.trim()} style={{ flex:1, padding:'10px 20px', borderRadius:8, fontSize:12, fontWeight:700, background:C.red, color:'#fff', border:'none', cursor:'pointer', opacity:name.trim()?1:0.35, textTransform:'uppercase', letterSpacing:'0.04em' }}>Opret liste</button>
+            <button type="button" onClick={onClose} style={{ padding:'10px 20px', borderRadius:8, fontSize:12, fontWeight:600, background:'transparent', color:C.textMuted, border:'none', cursor:'pointer', textTransform:'uppercase' }}>Annullér</button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }
 
