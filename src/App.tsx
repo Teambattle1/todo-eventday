@@ -3209,6 +3209,9 @@ function Sidebar({
         <button onClick={onShowPrintTransport} style={sidebarBtnStyle()}>
           <Printer style={{ width:14, height:14, color:C.cyan }} />
           <span style={{ flex:1, textAlign:'left' }}>Gear øst/vest</span>
+          {counts.transport > 0 && (
+            <span style={{ fontSize:11, fontWeight:600, color:C.textMuted, minWidth:18, textAlign:'right' }}>{counts.transport}</span>
+          )}
         </button>
       </nav>
 
