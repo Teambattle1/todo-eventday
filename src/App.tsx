@@ -134,7 +134,14 @@ export default function App() {
   const active = useMemo(() => todos.filter(t => !t.resolved), [todos])
   const overdue = useMemo(() => active.filter(t => isOverdue(t.due_date)), [active])
   const tasks = useMemo(() => {
-    const t = active.filter(t => !isIdeaCategory(t.category) && t.category !== 'CODE' && t.category !== 'REPAIR')
+    const t = active.filter(t => {
+      if (isIdeaCategory(t.category)) return false
+      const c = t.category
+      if (c === 'CODE' || c?.startsWith('CODE#')) return false
+      if (c === 'REPAIR' || c?.startsWith('REPAIR#')) return false
+      if (c?.startsWith('custom:')) return false
+      return true
+    })
     t.sort((a,b) => {
       const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
       return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -154,7 +161,7 @@ export default function App() {
   const crewTasks = useMemo(() => tasks.filter(t => t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id), [tasks, thomasEmp, mariaEmp])
   const unassignedTasks = useMemo(() => tasks.filter(t => !t.assigned_to), [tasks])
   const codeTasks = useMemo(() => {
-    const t = active.filter(x => x.category === 'CODE')
+    const t = active.filter(x => x.category === 'CODE' || x.category?.startsWith('CODE#'))
     t.sort((a,b) => {
       const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
       return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -162,7 +169,7 @@ export default function App() {
     return t
   }, [active])
   const repairTasks = useMemo(() => {
-    const t = active.filter(x => x.category === 'REPAIR')
+    const t = active.filter(x => x.category === 'REPAIR' || x.category?.startsWith('REPAIR#'))
     t.sort((a,b) => {
       const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
       return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -262,11 +269,56 @@ export default function App() {
     saveCustomLists(customLists.filter(l => l.id !== id))
     if (currentView === `custom:${id}`) setCurrentView('today')
   }
+  const renameCustomList = (id: string, name: string) => {
+    if (!name.trim()) return
+    saveCustomLists(customLists.map(l => l.id === id ? { ...l, name: name.trim() } : l))
+  }
+
+  // List sections — sub-groups within Code, Repair, or Custom lists
+  type ListSection = { id: string; name: string }
+  const [listSections, setListSections] = useState<Record<string, ListSection[]>>(() => {
+    try { return JSON.parse(localStorage.getItem('listSections') || '{}') } catch { return {} }
+  })
+  const saveListSections = (next: Record<string, ListSection[]>) => {
+    setListSections(next)
+    localStorage.setItem('listSections', JSON.stringify(next))
+  }
+  const addListSection = (listKey: string, name: string) => {
+    if (!name.trim()) return
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    const curr = listSections[listKey] || []
+    saveListSections({ ...listSections, [listKey]: [...curr, { id, name: name.trim() }] })
+  }
+  const deleteListSection = async (listKey: string, sectionId: string) => {
+    // Move tasks in this section back to the base list
+    const tasksToMove = active.filter(t => t.category === `${listKey}#${sectionId}`)
+    for (const t of tasksToMove) {
+      await updateTodo(t.id, { category: listKey })
+    }
+    const next = { ...listSections, [listKey]: (listSections[listKey] || []).filter(s => s.id !== sectionId) }
+    saveListSections(next)
+  }
+  // Group tasks by section for a given list
+  const groupTasksBySection = (listKey: string, tasks: Todo[]): { sectionId: string | null; name: string; items: Todo[] }[] => {
+    const sections = listSections[listKey] || []
+    const groups: { sectionId: string | null; name: string; items: Todo[] }[] = [
+      { sectionId: null, name: 'Ingen sektion', items: [] },
+    ]
+    sections.forEach(s => groups.push({ sectionId: s.id, name: s.name, items: [] }))
+    tasks.forEach(t => {
+      const cat = t.category || ''
+      const hashIdx = cat.indexOf('#')
+      const sid = hashIdx >= 0 ? cat.slice(hashIdx + 1) : null
+      const target = groups.find(g => g.sectionId === sid) || groups[0]
+      target.items.push(t)
+    })
+    return groups
+  }
   // Map custom lists to their tasks
   const customListTasks = useMemo(() => {
     const m = new Map<string, Todo[]>()
     customLists.forEach(l => {
-      m.set(l.id, active.filter(t => t.category === `custom:${l.id}`).sort((a,b) => {
+      m.set(l.id, active.filter(t => t.category === `custom:${l.id}` || t.category?.startsWith(`custom:${l.id}#`)).sort((a,b) => {
         const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
         return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       }))
@@ -429,7 +481,6 @@ export default function App() {
           gpsActive={gpsActive}
           connected={connected}
           onQuickCreate={() => setQuickCreate(true)}
-          onShowIdeas={() => setShowIdeas(true)}
           onShowPrintTransport={() => setShowPrintTransport(true)}
           customLists={customLists}
           customListCounts={Object.fromEntries(customLists.map(l => [l.id, customListTasks.get(l.id)?.length || 0]))}
@@ -469,6 +520,7 @@ export default function App() {
             mariaName={firstName(mariaEmp, 'Maria')}
             customLists={customLists}
             customListCount={currentView.startsWith('custom:') ? (customListTasks.get(currentView.slice(7))?.length || 0) : 0}
+            onRenameCustomList={renameCustomList}
           />
           <div style={{ flex:1, overflowY:'auto' }}>
             <div style={{ maxWidth:900, margin:'0 auto', padding: isMobile ? '16px' : '24px 40px 48px' }}>
@@ -606,7 +658,18 @@ export default function App() {
               {currentView === 'code' && (<>
                 {addingCode && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: 'CODE' }); setAddingCode(false) }} onCancel={() => setAddingCode(false)} />}
                 {!addingCode && <AddRow label="Ny code-opgave" onClick={() => setAddingCode(true)} />}
-                {codeTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                <SectionManager listKey="CODE" sections={listSections['CODE'] || []} onAdd={name => addListSection('CODE', name)} />
+                <SectionedList
+                  listKey="CODE"
+                  groups={groupTasksBySection('CODE', codeTasks)}
+                  color={C.purple}
+                  employees={employees}
+                  onToggle={t => updateTodo(t.id, { resolved: true })}
+                  onDelete={t => deleteTodo(t.id)}
+                  onClickTask={t => setEditingTodo(t)}
+                  onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
+                  onDeleteSection={sid => deleteListSection('CODE', sid)}
+                />
                 {codeTasks.length === 0 && !addingCode && <Empty text="Ingen code opgaver" />}
               </>)}
 
@@ -614,7 +677,18 @@ export default function App() {
               {currentView === 'repair' && (<>
                 {addingRepair && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: 'REPAIR' }); setAddingRepair(false) }} onCancel={() => setAddingRepair(false)} />}
                 {!addingRepair && <AddRow label="Tilføj reparation" onClick={() => setAddingRepair(true)} />}
-                {repairTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                <SectionManager listKey="REPAIR" sections={listSections['REPAIR'] || []} onAdd={name => addListSection('REPAIR', name)} />
+                <SectionedList
+                  listKey="REPAIR"
+                  groups={groupTasksBySection('REPAIR', repairTasks)}
+                  color={C.amber}
+                  employees={employees}
+                  onToggle={t => updateTodo(t.id, { resolved: true })}
+                  onDelete={t => deleteTodo(t.id)}
+                  onClickTask={t => setEditingTodo(t)}
+                  onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
+                  onDeleteSection={sid => deleteListSection('REPAIR', sid)}
+                />
                 {repairTasks.length === 0 && !addingRepair && <Empty text="Intet at reparere" />}
               </>)}
 
@@ -681,11 +755,23 @@ export default function App() {
                 const list = customLists.find(l => l.id === listId)
                 if (!list) return <Empty text="Listen findes ikke" />
                 const items = customListTasks.get(listId) || []
+                const listKey = `custom:${listId}`
                 return (
                   <>
-                    {addingTaskThomas && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: `custom:${listId}` }); setAddingTaskThomas(false) }} onCancel={() => setAddingTaskThomas(false)} />}
+                    {addingTaskThomas && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: listKey }); setAddingTaskThomas(false) }} onCancel={() => setAddingTaskThomas(false)} />}
                     {!addingTaskThomas && <AddRow label={`Tilføj til ${list.name}`} onClick={() => setAddingTaskThomas(true)} />}
-                    {items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                    <SectionManager listKey={listKey} sections={listSections[listKey] || []} onAdd={name => addListSection(listKey, name)} />
+                    <SectionedList
+                      listKey={listKey}
+                      groups={groupTasksBySection(listKey, items)}
+                      color={list.color}
+                      employees={employees}
+                      onToggle={t => updateTodo(t.id, { resolved: true })}
+                      onDelete={t => deleteTodo(t.id)}
+                      onClickTask={t => setEditingTodo(t)}
+                      onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
+                      onDeleteSection={sid => deleteListSection(listKey, sid)}
+                    />
                     {items.length === 0 && !addingTaskThomas && <Empty text="Listen er tom — træk opgaver hertil eller tilføj en ny" />}
                   </>
                 )
@@ -2936,7 +3022,7 @@ type ViewKeyLocal = BuiltInViewKey | `custom:${string}` | string
 function Sidebar({
   open, isMobile, onClose, currentView, setCurrentView, counts, dueCounts,
   thomasName, mariaName, thomasId, mariaId, gpsActive, connected,
-  onQuickCreate, onShowIdeas, onShowPrintTransport, onDropTodo,
+  onQuickCreate, onShowPrintTransport, onDropTodo,
   customLists, customListCounts, customListDueCounts, onCreateList, onDeleteCustomList,
 }: {
   open: boolean
@@ -2958,7 +3044,6 @@ function Sidebar({
   gpsActive: boolean
   connected: boolean
   onQuickCreate: () => void
-  onShowIdeas: () => void
   onShowPrintTransport: () => void
   onDropTodo: (view: ViewKeyLocal, id: string) => void | Promise<any>
 }) {
@@ -3033,14 +3118,10 @@ function Sidebar({
 
         {/* Tools */}
         <div style={{ fontSize:10, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 10px 6px' }}>Værktøjer</div>
-        <SidebarItem dotColor={C.purple} label="Idéer" count={counts.ideas} active={currentView==='ideas'} color={C.purple} onClick={() => setCurrentView('ideas')} />
+        <SidebarItem icon={<Lightbulb style={{ width:14, height:14, color:C.purple }} />} label="Idéer" count={counts.ideas} active={currentView==='ideas'} color={C.purple} onClick={() => setCurrentView('ideas')} />
         <button onClick={onShowPrintTransport} style={sidebarBtnStyle()}>
           <Printer style={{ width:14, height:14, color:C.cyan }} />
           <span style={{ flex:1, textAlign:'left' }}>Print Øst/Vest</span>
-        </button>
-        <button onClick={onShowIdeas} style={sidebarBtnStyle()}>
-          <Lightbulb style={{ width:14, height:14, color:C.purple }} />
-          <span style={{ flex:1, textAlign:'left' }}>Idéer-browser</span>
         </button>
       </nav>
 
@@ -3117,7 +3198,7 @@ function getIsoWeek(date: Date): number {
 }
 
 /* ━━━ Main View Header ━━━ */
-function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName, customLists, customListCount }: {
+function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName, customLists, customListCount, onRenameCustomList }: {
   currentView: string
   isMobile: boolean
   onToggleSidebar: () => void
@@ -3126,7 +3207,12 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
   mariaName: string
   customLists?: { id: string; name: string; color: string }[]
   customListCount?: number
+  onRenameCustomList?: (id: string, name: string) => void
 }) {
+  const [editing, setEditing] = useState(false)
+  const [draftName, setDraftName] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
   const TITLES: Record<BuiltInViewKey, string> = {
     today: 'I dag',
     week: 'Denne uge',
@@ -3144,9 +3230,10 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
   }
   let title: string
   let count: number
-  if (currentView.startsWith('custom:')) {
-    const listId = currentView.slice(7)
-    const list = customLists?.find(l => l.id === listId)
+  const isCustom = currentView.startsWith('custom:')
+  const customListId = isCustom ? currentView.slice(7) : null
+  if (isCustom) {
+    const list = customLists?.find(l => l.id === customListId)
     title = list?.name || 'Liste'
     count = customListCount || 0
   } else {
@@ -3154,6 +3241,14 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
     count = counts[currentView as BuiltInViewKey] || 0
   }
   const weekNo = getIsoWeek(new Date())
+
+  const commitRename = () => {
+    if (customListId && draftName.trim() && onRenameCustomList) {
+      onRenameCustomList(customListId, draftName.trim())
+    }
+    setEditing(false)
+  }
+
   return (
     <header style={{ padding: isMobile ? '12px 16px' : '20px 40px', borderBottom:`1px solid ${C.border}`, background:C.surface, display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
       {isMobile && (
@@ -3161,7 +3256,25 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
           <ChevronRight style={{ width:16, height:16 }} />
         </button>
       )}
-      <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight:700, color:C.text, letterSpacing:'-0.01em' }}>{title}</h1>
+      {editing && isCustom ? (
+        <input
+          ref={inputRef}
+          value={draftName}
+          onChange={e => setDraftName(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditing(false) }}
+          style={{ fontSize: isMobile ? 18 : 22, fontWeight:700, color:C.text, background:C.input, border:`1px solid ${C.blue}`, borderRadius:8, padding:'4px 10px', outline:'none', minWidth:200 }}
+        />
+      ) : (
+        <h1
+          onClick={() => { if (isCustom && onRenameCustomList) { setDraftName(title); setEditing(true) } }}
+          title={isCustom && onRenameCustomList ? 'Klik for at omdøbe' : undefined}
+          style={{ fontSize: isMobile ? 18 : 22, fontWeight:700, color:C.text, letterSpacing:'-0.01em', cursor: isCustom && onRenameCustomList ? 'pointer' : 'default', display:'inline-flex', alignItems:'center', gap:6 }}
+        >
+          {title}
+          {isCustom && onRenameCustomList && <Pencil style={{ width:14, height:14, color:C.textMuted, opacity:0.5 }} />}
+        </h1>
+      )}
       <span style={{ fontSize:12, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 10px', borderRadius:12 }}>{count}</span>
       <span style={{ fontSize:11, fontWeight:700, color:C.amber, background:C.amber+'15', border:`1px solid ${C.amber}35`, padding:'3px 10px', borderRadius:12, letterSpacing:'0.04em' }}>UGE {weekNo}</span>
       {!isMobile && <div style={{ marginLeft:'auto' }}><LiveClock /></div>}
@@ -3170,6 +3283,116 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
 }
 
 /* ━━━ Inline Add Row (list view) ━━━ */
+/* ━━━ Section Manager — add new section button ━━━ */
+function SectionManager({ sections, onAdd }: { listKey: string; sections: { id: string; name: string }[]; onAdd: (name: string) => void }) {
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (adding) inputRef.current?.focus() }, [adding])
+  return (
+    <div style={{ marginBottom:10 }}>
+      {adding ? (
+        <form onSubmit={e => { e.preventDefault(); if (name.trim()) { onAdd(name); setName(''); setAdding(false) } }} style={{ display:'flex', gap:8 }}>
+          <input ref={inputRef} value={name} onChange={e => setName(e.target.value)} placeholder="Navn på sektion..." onBlur={() => { if (!name.trim()) setAdding(false) }} style={{ ...inputStyle, fontSize:12, flex:1 }} />
+          <button type="submit" disabled={!name.trim()} style={{ padding:'8px 14px', borderRadius:8, border:'none', background:C.red, color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer', textTransform:'uppercase', opacity:name.trim()?1:0.35 }}>Opret</button>
+        </form>
+      ) : (
+        <button onClick={() => setAdding(true)} style={{
+          display:'inline-flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:6, border:`1px solid ${C.border}`, background:'transparent',
+          color:C.textMuted, fontSize:11, fontWeight:600, cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em', transition:'all 0.15s',
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = C.red+'60'; e.currentTarget.style.color = C.red }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted }}>
+          <Plus style={{ width:12, height:12 }} /> Ny sektion {sections.length > 0 && `(${sections.length})`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ━━━ Sectioned List — renders tasks grouped by section with drop targets ━━━ */
+function SectionedList({ listKey, groups, color, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection }: {
+  listKey: string
+  groups: { sectionId: string | null; name: string; items: Todo[] }[]
+  color: string
+  employees: Map<string, Employee>
+  onToggle: (t: Todo) => void
+  onDelete: (t: Todo) => void
+  onClickTask: (t: Todo) => void
+  onDropTodo: (id: string, targetCategory: string) => void | Promise<any>
+  onDeleteSection: (sectionId: string) => void | Promise<any>
+}) {
+  return (
+    <>
+      {groups.map(g => {
+        const targetCat = g.sectionId ? `${listKey}#${g.sectionId}` : listKey
+        return (
+          <SectionBlock
+            key={g.sectionId || 'none'}
+            name={g.name}
+            color={color}
+            items={g.items}
+            isDefault={!g.sectionId}
+            employees={employees}
+            onToggle={onToggle}
+            onDelete={onDelete}
+            onClickTask={onClickTask}
+            onDropTodo={id => onDropTodo(id, targetCat)}
+            onDeleteSection={g.sectionId ? () => onDeleteSection(g.sectionId!) : undefined}
+          />
+        )
+      })}
+    </>
+  )
+}
+
+function SectionBlock({ name, color, items, isDefault, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection }: {
+  name: string; color: string; items: Todo[]; isDefault: boolean
+  employees: Map<string, Employee>
+  onToggle: (t: Todo) => void; onDelete: (t: Todo) => void; onClickTask: (t: Todo) => void
+  onDropTodo: (id: string) => void | Promise<any>
+  onDeleteSection?: () => void | Promise<any>
+}) {
+  const [dragOver, setDragOver] = useState(false)
+  // Hide empty default section
+  if (isDefault && items.length === 0) return null
+  return (
+    <div
+      onDragOver={e => { if (e.dataTransfer.types.includes('application/x-todo-id')) { e.preventDefault(); setDragOver(true) } }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={async e => {
+        e.preventDefault(); setDragOver(false)
+        const id = e.dataTransfer.getData('application/x-todo-id')
+        if (id) await onDropTodo(id)
+      }}
+      style={{
+        marginBottom:16, padding: dragOver ? 8 : 0, borderRadius:10,
+        border: dragOver ? `2px dashed ${color}` : '2px dashed transparent',
+        background: dragOver ? color+'08' : 'transparent',
+        transition:'all 0.12s',
+      }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 4px 10px', borderBottom:`1px solid ${C.border}`, marginBottom:10 }}>
+        <div style={{ width:4, height:14, borderRadius:2, background:color }} />
+        <span style={{ fontSize:12, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.05em' }}>{name}</span>
+        <span style={{ fontSize:10, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 7px', borderRadius:10 }}>{items.length}</span>
+        {onDeleteSection && (
+          <button onClick={() => { if (confirm(`Slet sektionen "${name}"? Opgaver i sektionen flyttes op i listen.`)) onDeleteSection() }}
+            style={{ marginLeft:'auto', padding:3, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.4 }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = C.red }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = C.textMuted }}>
+            <Trash2 style={{ width:12, height:12 }} />
+          </button>
+        )}
+      </div>
+      {items.length === 0 ? (
+        <div style={{ fontSize:11, color:C.textMuted, padding:'8px 4px', fontStyle:'italic' }}>Træk opgaver hertil</div>
+      ) : (
+        items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => onToggle(t)} onDel={() => onDelete(t)} onClick={() => onClickTask(t)} />)
+      )}
+    </div>
+  )
+}
+
 function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{
