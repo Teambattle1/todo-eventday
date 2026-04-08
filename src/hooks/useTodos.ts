@@ -30,6 +30,7 @@ export function useTodos() {
         priority: todo.priority || 'Normal',
         due_date: todo.due_date || null,
         category: todo.category || null,
+        section_id: todo.section_id || null,
         location: todo.location || null,
         resolved: false,
         is_error: false,
