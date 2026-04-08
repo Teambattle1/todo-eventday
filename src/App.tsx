@@ -275,7 +275,7 @@ export default function App() {
   }
 
   // List sections — sub-groups within Code, Repair, or Custom lists
-  type ListSection = { id: string; name: string }
+  type ListSection = { id: string; name: string; color?: string }
   const [listSections, setListSections] = useState<Record<string, ListSection[]>>(() => {
     try { return JSON.parse(localStorage.getItem('listSections') || '{}') } catch { return {} }
   })
@@ -283,11 +283,15 @@ export default function App() {
     setListSections(next)
     localStorage.setItem('listSections', JSON.stringify(next))
   }
-  const addListSection = (listKey: string, name: string) => {
+  const addListSection = (listKey: string, name: string, color?: string) => {
     if (!name.trim()) return
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
     const curr = listSections[listKey] || []
-    saveListSections({ ...listSections, [listKey]: [...curr, { id, name: name.trim() }] })
+    saveListSections({ ...listSections, [listKey]: [...curr, { id, name: name.trim(), color }] })
+  }
+  const setSectionColor = (listKey: string, sectionId: string, color: string) => {
+    const curr = listSections[listKey] || []
+    saveListSections({ ...listSections, [listKey]: curr.map(s => s.id === sectionId ? { ...s, color } : s) })
   }
   const deleteListSection = async (listKey: string, sectionId: string) => {
     // Move tasks in this section back to the base list
@@ -298,13 +302,19 @@ export default function App() {
     const next = { ...listSections, [listKey]: (listSections[listKey] || []).filter(s => s.id !== sectionId) }
     saveListSections(next)
   }
+  const renameListSection = (listKey: string, sectionId: string, name: string) => {
+    if (!name.trim()) return
+    const curr = listSections[listKey] || []
+    const next = { ...listSections, [listKey]: curr.map(s => s.id === sectionId ? { ...s, name: name.trim() } : s) }
+    saveListSections(next)
+  }
   // Group tasks by section for a given list
-  const groupTasksBySection = (listKey: string, tasks: Todo[]): { sectionId: string | null; name: string; items: Todo[] }[] => {
+  const groupTasksBySection = (listKey: string, tasks: Todo[]): { sectionId: string | null; name: string; color?: string; items: Todo[] }[] => {
     const sections = listSections[listKey] || []
-    const groups: { sectionId: string | null; name: string; items: Todo[] }[] = [
+    const groups: { sectionId: string | null; name: string; color?: string; items: Todo[] }[] = [
       { sectionId: null, name: 'Ingen sektion', items: [] },
     ]
-    sections.forEach(s => groups.push({ sectionId: s.id, name: s.name, items: [] }))
+    sections.forEach(s => groups.push({ sectionId: s.id, name: s.name, color: s.color, items: [] }))
     tasks.forEach(t => {
       const cat = t.category || ''
       const hashIdx = cat.indexOf('#')
@@ -669,6 +679,8 @@ export default function App() {
                   onClickTask={t => setEditingTodo(t)}
                   onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
                   onDeleteSection={sid => deleteListSection('CODE', sid)}
+                  onRenameSection={(sid, name) => renameListSection('CODE', sid, name)}
+                  onSetSectionColor={(sid, col) => setSectionColor('CODE', sid, col)}
                 />
                 {codeTasks.length === 0 && !addingCode && <Empty text="Ingen code opgaver" />}
               </>)}
@@ -688,6 +700,8 @@ export default function App() {
                   onClickTask={t => setEditingTodo(t)}
                   onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
                   onDeleteSection={sid => deleteListSection('REPAIR', sid)}
+                  onRenameSection={(sid, name) => renameListSection('REPAIR', sid, name)}
+                  onSetSectionColor={(sid, col) => setSectionColor('REPAIR', sid, col)}
                 />
                 {repairTasks.length === 0 && !addingRepair && <Empty text="Intet at reparere" />}
               </>)}
@@ -771,6 +785,8 @@ export default function App() {
                       onClickTask={t => setEditingTodo(t)}
                       onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
                       onDeleteSection={sid => deleteListSection(listKey, sid)}
+                      onRenameSection={(sid, name) => renameListSection(listKey, sid, name)}
+                      onSetSectionColor={(sid, col) => setSectionColor(listKey, sid, col)}
                     />
                     {items.length === 0 && !addingTaskThomas && <Empty text="Listen er tom — træk opgaver hertil eller tilføj en ny" />}
                   </>
@@ -3311,9 +3327,9 @@ function SectionManager({ sections, onAdd }: { listKey: string; sections: { id: 
 }
 
 /* ━━━ Sectioned List — renders tasks grouped by section with drop targets ━━━ */
-function SectionedList({ listKey, groups, color, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection }: {
+function SectionedList({ listKey, groups, color, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection, onRenameSection, onSetSectionColor }: {
   listKey: string
-  groups: { sectionId: string | null; name: string; items: Todo[] }[]
+  groups: { sectionId: string | null; name: string; color?: string; items: Todo[] }[]
   color: string
   employees: Map<string, Employee>
   onToggle: (t: Todo) => void
@@ -3321,6 +3337,8 @@ function SectionedList({ listKey, groups, color, employees, onToggle, onDelete, 
   onClickTask: (t: Todo) => void
   onDropTodo: (id: string, targetCategory: string) => void | Promise<any>
   onDeleteSection: (sectionId: string) => void | Promise<any>
+  onRenameSection: (sectionId: string, name: string) => void
+  onSetSectionColor: (sectionId: string, color: string) => void
 }) {
   return (
     <>
@@ -3330,7 +3348,7 @@ function SectionedList({ listKey, groups, color, employees, onToggle, onDelete, 
           <SectionBlock
             key={g.sectionId || 'none'}
             name={g.name}
-            color={color}
+            color={g.color || color}
             items={g.items}
             isDefault={!g.sectionId}
             employees={employees}
@@ -3339,6 +3357,8 @@ function SectionedList({ listKey, groups, color, employees, onToggle, onDelete, 
             onClickTask={onClickTask}
             onDropTodo={id => onDropTodo(id, targetCat)}
             onDeleteSection={g.sectionId ? () => onDeleteSection(g.sectionId!) : undefined}
+            onRenameSection={g.sectionId ? (name: string) => onRenameSection(g.sectionId!, name) : undefined}
+            onSetColor={g.sectionId ? (col: string) => onSetSectionColor(g.sectionId!, col) : undefined}
           />
         )
       })}
@@ -3346,16 +3366,30 @@ function SectionedList({ listKey, groups, color, employees, onToggle, onDelete, 
   )
 }
 
-function SectionBlock({ name, color, items, isDefault, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection }: {
+function SectionBlock({ name, color, items, isDefault, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection, onRenameSection, onSetColor }: {
   name: string; color: string; items: Todo[]; isDefault: boolean
   employees: Map<string, Employee>
   onToggle: (t: Todo) => void; onDelete: (t: Todo) => void; onClickTask: (t: Todo) => void
   onDropTodo: (id: string) => void | Promise<any>
   onDeleteSection?: () => void | Promise<any>
+  onRenameSection?: (name: string) => void
+  onSetColor?: (color: string) => void
 }) {
   const [dragOver, setDragOver] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(name)
+  const [pickingColor, setPickingColor] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+  const COLORS = [C.blue, C.pink, C.green, C.amber, C.purple, C.cyan, C.red]
   // Hide empty default section
   if (isDefault && items.length === 0) return null
+
+  const commitRename = () => {
+    if (draft.trim() && draft.trim() !== name && onRenameSection) onRenameSection(draft.trim())
+    setEditing(false)
+  }
+
   return (
     <div
       onDragOver={e => { if (e.dataTransfer.types.includes('application/x-todo-id')) { e.preventDefault(); setDragOver(true) } }}
@@ -3373,16 +3407,54 @@ function SectionBlock({ name, color, items, isDefault, employees, onToggle, onDe
       }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 4px 10px', borderBottom:`1px solid ${C.border}`, marginBottom:10 }}>
         <div style={{ width:4, height:14, borderRadius:2, background:color }} />
-        <span style={{ fontSize:12, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.05em' }}>{name}</span>
-        <span style={{ fontSize:10, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 7px', borderRadius:10 }}>{items.length}</span>
-        {onDeleteSection && (
-          <button onClick={() => { if (confirm(`Slet sektionen "${name}"? Opgaver i sektionen flyttes op i listen.`)) onDeleteSection() }}
-            style={{ marginLeft:'auto', padding:3, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.4 }}
-            onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = C.red }}
-            onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = C.textMuted }}>
-            <Trash2 style={{ width:12, height:12 }} />
-          </button>
+        {editing && onRenameSection ? (
+          <input
+            ref={inputRef}
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setDraft(name); setEditing(false) } }}
+            style={{ fontSize:12, fontWeight:700, color:C.text, background:C.input, border:`1px solid ${color}`, borderRadius:6, padding:'3px 8px', outline:'none', minWidth:160, textTransform:'uppercase' }}
+          />
+        ) : (
+          <span
+            onClick={() => { if (onRenameSection) { setDraft(name); setEditing(true) } }}
+            title={onRenameSection ? 'Klik for at omdøbe' : undefined}
+            style={{ fontSize:12, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.05em', cursor: onRenameSection ? 'pointer' : 'default', display:'inline-flex', alignItems:'center', gap:6 }}
+          >
+            {name}
+            {onRenameSection && <Pencil style={{ width:11, height:11, color:C.textMuted, opacity:0.45 }} />}
+          </span>
         )}
+        <span style={{ fontSize:10, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 7px', borderRadius:10 }}>{items.length}</span>
+        <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:4, position:'relative' }}>
+          {onSetColor && (
+            <>
+              <button onClick={() => setPickingColor(p => !p)} title="Skift farve"
+                style={{ padding:3, border:'none', background:'transparent', cursor:'pointer', opacity:0.5, display:'flex' }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}>
+                <div style={{ width:12, height:12, borderRadius:6, background:color, border:`1px solid ${C.border}` }} />
+              </button>
+              {pickingColor && (
+                <div style={{ position:'absolute', top:20, right:0, background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:8, display:'flex', gap:6, boxShadow:'0 8px 24px rgba(0,0,0,0.4)', zIndex:50 }}>
+                  {COLORS.map(c => (
+                    <button key={c} onClick={() => { onSetColor(c); setPickingColor(false) }}
+                      style={{ width:22, height:22, borderRadius:11, background:c, border: color === c ? `2px solid ${C.text}` : '2px solid transparent', cursor:'pointer' }} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {onDeleteSection && (
+            <button onClick={() => { if (confirm(`Slet sektionen "${name}"? Opgaver i sektionen flyttes op i listen.`)) onDeleteSection() }}
+              style={{ padding:3, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.4 }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = C.red }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '0.4'; e.currentTarget.style.color = C.textMuted }}>
+              <Trash2 style={{ width:12, height:12 }} />
+            </button>
+          )}
+        </div>
       </div>
       {items.length === 0 ? (
         <div style={{ fontSize:11, color:C.textMuted, padding:'8px 4px', fontStyle:'italic' }}>Træk opgaver hertil</div>
