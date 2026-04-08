@@ -3208,7 +3208,7 @@ function Sidebar({
         <SidebarItem icon={<Lightbulb style={{ width:14, height:14, color:C.purple }} />} label="Idéer" count={counts.ideas} active={currentView==='ideas'} color={C.purple} onClick={() => setCurrentView('ideas')} />
         <button onClick={onShowPrintTransport} style={sidebarBtnStyle()}>
           <Printer style={{ width:14, height:14, color:C.cyan }} />
-          <span style={{ flex:1, textAlign:'left' }}>Print Øst/Vest</span>
+          <span style={{ flex:1, textAlign:'left' }}>Gear øst/vest</span>
         </button>
       </nav>
 
