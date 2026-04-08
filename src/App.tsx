@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { useQueryState, parseAsStringLiteral } from 'nuqs'
 import { useTodos } from './hooks/useTodos'
 import { useEmployees } from './hooks/useEmployees'
 import { useShopping } from './hooks/useShopping'
@@ -83,9 +84,16 @@ export default function App() {
   const [editingTransport, setEditingTransport] = useState<TransportItem | null>(null)
   const [showPrintTransport, setShowPrintTransport] = useState(false)
   const [showPersonalView, setShowPersonalView] = useState<string | null>(null)
-  const [showLanding, setShowLanding] = useState(true)
+  // Landing overlay — skipped on refresh if ?view= already exists in URL.
+  // Default: show landing on very first entry (no view param yet).
+  const [landingDismissed, setLandingDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return new URLSearchParams(window.location.search).has('view')
+  })
+  const showLanding = !landingDismissed
+  const setShowLanding = (v: boolean) => { setLandingDismissed(!v) }
   const [showIdeas, setShowIdeas] = useState(false)
-  const [mobileTab, setMobileTab] = useState<number>(0)
+  const [, setMobileTab] = useState<number>(0)
   const [quickCreate, setQuickCreate] = useState(false)
   const [currentUser, setCurrentUser] = useState<'thomas' | 'maria'>(() => (localStorage.getItem('todo-user') as any) || 'thomas')
 
@@ -188,10 +196,10 @@ export default function App() {
   }, [])
   const isMobile = winW < 768
   const isTablet = winW >= 768 && winW < 1200
-  const gridCols = isMobile ? '1fr' : isTablet ? 'repeat(3, 1fr)' : 'repeat(8, 1fr)'
+  void isTablet // tablet breakpoint no longer used with sidebar layout
 
-  // Due tasks popup - show once per session on load
-  const [duePopupDismissed, setDuePopupDismissed] = useState(false)
+  // Due tasks popup - only shown when user clicks a specific person from landing
+  const [duePopupFor, setDuePopupFor] = useState<'thomas' | 'maria' | 'crew' | null>(null)
   const todayStr = new Date().toISOString().slice(0,10)
 
   // Helper: count of tasks that are overdue or due today in a list
@@ -200,7 +208,27 @@ export default function App() {
     return x.due_date <= todayStr
   }).length
   const dueTodayTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.due_date === todayStr), [active, todayStr])
-  const showDuePopup = !duePopupDismissed && !loading && (overdue.length > 0 || dueTodayTasks.length > 0)
+  const upcomingTasks = useMemo(() => tasks.filter(t => t.due_date && t.due_date > todayStr).sort((a,b) => (a.due_date || '').localeCompare(b.due_date || '')), [tasks, todayStr])
+  const todayTasks = useMemo(() => [...overdue, ...dueTodayTasks.filter(t => !overdue.includes(t))], [overdue, dueTodayTasks])
+
+  // Sidebar / view state — persisted in URL via nuqs so refresh keeps the view
+  const VIEW_KEYS = ['today','upcoming','inbox','thomas','maria','crew','phone','code','repair','transport','shop','ideas'] as const
+  type ViewKey = typeof VIEW_KEYS[number]
+  const [currentView, setCurrentViewQS] = useQueryState('view', parseAsStringLiteral(VIEW_KEYS).withDefault('today'))
+  const setCurrentView = (v: ViewKey) => { setCurrentViewQS(v) }
+  const [sidebarOpen, setSidebarOpen] = useState(winW >= 768)
+  useEffect(() => { if (winW >= 768) setSidebarOpen(true) }, [winW])
+
+  // Filter popup content by the selected person
+  const popupFilter = (t: Todo) => {
+    if (duePopupFor === 'thomas') return t.assigned_to === thomasEmp?.id
+    if (duePopupFor === 'maria') return t.assigned_to === mariaEmp?.id
+    if (duePopupFor === 'crew') return !!t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id
+    return false
+  }
+  const popupOverdue = duePopupFor ? overdue.filter(popupFilter) : []
+  const popupDueToday = duePopupFor ? dueTodayTasks.filter(popupFilter) : []
+  const showDuePopup = !!duePopupFor && !loading && (popupOverdue.length > 0 || popupDueToday.length > 0)
 
   if (loading) return (
     <div style={{ height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -218,13 +246,17 @@ export default function App() {
             <div style={{ padding:24 }}>
               <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16 }}>
                 <AlertTriangle style={{ width:20, height:20, color:C.red }} />
-                <h2 style={{ fontSize:16, fontWeight:700, color:'#fff' }}>OPGAVER DER KRÆVER OPMÆRKSOMHED</h2>
+                <h2 style={{ fontSize:16, fontWeight:700, color:'#fff' }}>
+                  {duePopupFor === 'thomas' ? `OPGAVER FOR ${firstName(thomasEmp, 'THOMAS').toUpperCase()}` :
+                   duePopupFor === 'maria' ? `OPGAVER FOR ${firstName(mariaEmp, 'MARIA').toUpperCase()}` :
+                   'OPGAVER FOR CREW'}
+                </h2>
               </div>
 
-              {overdue.length > 0 && (
+              {popupOverdue.length > 0 && (
                 <div style={{ marginBottom:16 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:C.red, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Overskredet ({overdue.length})</div>
-                  {overdue.map(t => (
+                  <div style={{ fontSize:11, fontWeight:700, color:C.red, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Overskredet ({popupOverdue.length})</div>
+                  {popupOverdue.map(t => (
                     <div key={t.id} style={{ padding:'8px 12px', borderRadius:8, background:C.red+'08', border:`1px solid ${C.red}20`, marginBottom:4, display:'flex', alignItems:'center', gap:8 }}>
                       <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:getPriorityColor(t.priority)+'20', color:getPriorityColor(t.priority) }}>{getPriorityLabel(t.priority)}</span>
                       <span style={{ fontSize:12, fontWeight:500, color:C.text, flex:1 }}>{t.title}</span>
@@ -234,10 +266,10 @@ export default function App() {
                 </div>
               )}
 
-              {dueTodayTasks.length > 0 && (
+              {popupDueToday.length > 0 && (
                 <div style={{ marginBottom:16 }}>
-                  <div style={{ fontSize:11, fontWeight:700, color:C.amber, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>I dag ({dueTodayTasks.length})</div>
-                  {dueTodayTasks.map(t => (
+                  <div style={{ fontSize:11, fontWeight:700, color:C.amber, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>I dag ({popupDueToday.length})</div>
+                  {popupDueToday.map(t => (
                     <div key={t.id} style={{ padding:'8px 12px', borderRadius:8, background:C.amber+'08', border:`1px solid ${C.amber}20`, marginBottom:4, display:'flex', alignItems:'center', gap:8 }}>
                       <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:getPriorityColor(t.priority)+'20', color:getPriorityColor(t.priority) }}>{getPriorityLabel(t.priority)}</span>
                       <span style={{ fontSize:12, fontWeight:500, color:C.text, flex:1 }}>{t.title}</span>
@@ -246,7 +278,7 @@ export default function App() {
                 </div>
               )}
 
-              <button onClick={() => setDuePopupDismissed(true)} style={{ width:'100%', padding:'10px 20px', borderRadius:8, fontSize:12, fontWeight:700, background:C.blue, color:'#fff', border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>
+              <button onClick={() => setDuePopupFor(null)} style={{ width:'100%', padding:'10px 20px', borderRadius:8, fontSize:12, fontWeight:700, background:C.blue, color:'#fff', border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>
                 OK, FORSTÅET
               </button>
             </div>
@@ -301,78 +333,218 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Header ── */}
-      <header style={{ borderBottom:`1px solid ${C.border}`, background:C.surface, flexShrink:0 }}>
-        <div style={{ maxWidth:1800, margin:'0 auto', padding: isMobile ? '12px 16px' : '20px 40px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div>
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <h1 style={{ fontSize: isMobile ? 16 : 20, fontWeight:700, letterSpacing:'-0.02em', color:C.text }}>TeamBattle Todo</h1>
-              {gpsActive && (
-                <div style={{ width:8, height:8, borderRadius:4, background:C.cyan, boxShadow:`0 0 6px ${C.cyan}` }} title="GPS aktiv" />
-              )}
-            </div>
-            <div style={{ display:'flex', alignItems:'center', gap: isMobile ? 12 : 20, marginTop:6 }}>
-              <StatPill n={tasks.length} label="Opgaver" color={C.blue} />
-              <StatPill n={activeCalls.length} label="Ringes" color={C.amber} />
-              <StatPill n={pendShop.length} label="Indkøb" color={C.green} />
-              <StatPill n={activeTransport.length} label="ØST/VEST" color={C.cyan} />
-              {overdue.length > 0 && <StatPill n={overdue.length} label="Overdue" color={C.red} />}
-              <div style={{ width:8, height:8, borderRadius:4, background: connected ? '#34d399' : C.red, marginLeft:4 }} />
-            </div>
-            <div style={{ display:'flex', gap:6, marginTop:8 }}>
-              <button onClick={() => setShowPrintTransport(true)} style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 12px', borderRadius:6, fontSize:10, fontWeight:700, cursor:'pointer', border:`1px solid ${C.cyan}40`, background:'transparent', color:C.cyan, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                <Printer style={{ width:11, height:11 }} /> PRINT ØST/VEST
-              </button>
-              <button onClick={() => setShowPersonalView('thomas')} style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 12px', borderRadius:6, fontSize:10, fontWeight:700, cursor:'pointer', border:`1px solid ${C.green}40`, background:'transparent', color:C.green, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                <Briefcase style={{ width:11, height:11 }} /> THOMAS
-              </button>
-              <button onClick={() => setShowPersonalView('maria')} style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 12px', borderRadius:6, fontSize:10, fontWeight:700, cursor:'pointer', border:`1px solid ${C.pink}40`, background:'transparent', color:C.pink, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                <User style={{ width:11, height:11 }} /> MARIA
-              </button>
-              <button onClick={() => setShowPersonalView('crew')} style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 12px', borderRadius:6, fontSize:10, fontWeight:700, cursor:'pointer', border:`1px solid ${C.cyan}40`, background:'transparent', color:C.cyan, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                <User style={{ width:11, height:11 }} /> CREW
-              </button>
-              <select onChange={e => { if (e.target.value) setShowPersonalView(e.target.value); e.target.value = '' }} style={{ padding:'5px 8px', borderRadius:6, fontSize:10, fontWeight:700, border:`1px solid ${C.border}`, background:'transparent', color:C.textMuted, cursor:'pointer' }}>
-                <option value="">ALLE TODO...</option>
-                {[...employees.values()].sort((a,b) => a.navn.localeCompare(b.navn)).map(e => (
-                  <option key={e.id} value={e.id}>{e.navn} ({e.location})</option>
+      {/* ── Sidebar + Main area ── */}
+      <div style={{ flex:1, display:'flex', flexDirection:'row', minHeight:0 }}>
+        <Sidebar
+          open={sidebarOpen}
+          isMobile={isMobile}
+          onClose={() => setSidebarOpen(false)}
+          currentView={currentView}
+          setCurrentView={(v) => { setCurrentView(v); if (isMobile) setSidebarOpen(false) }}
+          counts={{
+            today: todayTasks.length,
+            upcoming: upcomingTasks.length,
+            inbox: unassignedTasks.length,
+            thomas: thomasTasks.length,
+            maria: mariaTasks.length,
+            crew: crewTasks.length,
+            phone: activeCalls.length,
+            code: codeTasks.length,
+            repair: repairTasks.length,
+            transport: activeTransport.length,
+            shop: pendShop.length,
+            ideas: ideaGroups.reduce((s,[,v])=>s+v.length,0),
+          }}
+          dueCounts={{
+            today: todayTasks.length,
+            thomas: dueFlagCount(thomasTasks),
+            maria: dueFlagCount(mariaTasks),
+            crew: dueFlagCount(crewTasks),
+            phone: dueFlagCount(activeCalls),
+            code: dueFlagCount(codeTasks),
+            repair: dueFlagCount(repairTasks),
+            shop: dueFlagCount(pendShop),
+          }}
+          thomasName={firstName(thomasEmp, 'Thomas')}
+          mariaName={firstName(mariaEmp, 'Maria')}
+          thomasId={thomasEmp?.id}
+          mariaId={mariaEmp?.id}
+          gpsActive={gpsActive}
+          connected={connected}
+          onQuickCreate={() => setQuickCreate(true)}
+          onShowIdeas={() => setShowIdeas(true)}
+          onShowPrintTransport={() => setShowPrintTransport(true)}
+          onDropTodo={async (view, id) => {
+            if (view === 'thomas') await updateTodo(id, { assigned_to: thomasEmp?.id || null, category: null })
+            else if (view === 'maria') await updateTodo(id, { assigned_to: mariaEmp?.id || null, category: null })
+            else if (view === 'crew') await updateTodo(id, { category: null })
+            else if (view === 'code') await updateTodo(id, { category: 'CODE' })
+            else if (view === 'repair') await updateTodo(id, { category: 'REPAIR' })
+            else if (view === 'inbox') await updateTodo(id, { assigned_to: null, category: null })
+          }}
+        />
+
+        {/* Mobile sidebar backdrop */}
+        {isMobile && sidebarOpen && (
+          <div onClick={() => setSidebarOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:899 }} />
+        )}
+
+        {/* Main area */}
+        <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, overflow:'hidden' }}>
+          <MainViewHeader
+            currentView={currentView}
+            isMobile={isMobile}
+            onToggleSidebar={() => setSidebarOpen(o => !o)}
+            counts={{
+              today: todayTasks.length, upcoming: upcomingTasks.length, inbox: unassignedTasks.length,
+              thomas: thomasTasks.length, maria: mariaTasks.length, crew: crewTasks.length,
+              phone: activeCalls.length, code: codeTasks.length, repair: repairTasks.length,
+              transport: activeTransport.length, shop: pendShop.length,
+              ideas: ideaGroups.reduce((s,[,v])=>s+v.length,0),
+            }}
+            thomasName={firstName(thomasEmp, 'Thomas')}
+            mariaName={firstName(mariaEmp, 'Maria')}
+          />
+          <div style={{ flex:1, overflowY:'auto' }}>
+            <div style={{ maxWidth:900, margin:'0 auto', padding: isMobile ? '16px' : '24px 40px 48px' }}>
+
+              {/* Thomas */}
+              {currentView === 'thomas' && (<>
+                {addingTaskThomas && <TaskForm employees={employees} defaultAssign={thomasEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || thomasEmp?.id || null }); setAddingTaskThomas(false) }} onCancel={() => setAddingTaskThomas(false)} />}
+                {!addingTaskThomas && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskThomas(true)} />}
+                {thomasTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {thomasTasks.length === 0 && !addingTaskThomas && <Empty text="Ingen aktive opgaver" />}
+              </>)}
+
+              {/* Maria */}
+              {currentView === 'maria' && (<>
+                {addingTaskMaria && <TaskForm employees={employees} defaultAssign={mariaEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || mariaEmp?.id || null }); setAddingTaskMaria(false) }} onCancel={() => setAddingTaskMaria(false)} />}
+                {!addingTaskMaria && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskMaria(true)} />}
+                {mariaTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {mariaTasks.length === 0 && !addingTaskMaria && <Empty text="Ingen aktive opgaver" />}
+              </>)}
+
+              {/* Crew */}
+              {currentView === 'crew' && (<>
+                {addingTaskCrew && <CrewTaskForm employees={employees} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} jesperEmp={jesperEmp} kimEmp={kimEmp} steenEmp={steenEmp} onDone={async d => { await addTodo(d); setAddingTaskCrew(false) }} onCancel={() => setAddingTaskCrew(false)} />}
+                {!addingTaskCrew && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskCrew(true)} />}
+                {crewTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {crewTasks.length === 0 && !addingTaskCrew && <Empty text="Ingen crew-opgaver" />}
+              </>)}
+
+              {/* Inbox */}
+              {currentView === 'inbox' && (<>
+                {unassignedTasks.map(t => <TaskCard key={t.id} t={t} emp={undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {unassignedTasks.length === 0 && <Empty text="Indbakken er tom" />}
+              </>)}
+
+              {/* Today */}
+              {currentView === 'today' && (<>
+                {todayTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {todayTasks.length === 0 && <Empty text="Ingen opgaver i dag — godt gået!" />}
+              </>)}
+
+              {/* Upcoming */}
+              {currentView === 'upcoming' && (<>
+                {upcomingTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {upcomingTasks.length === 0 && <Empty text="Ingen kommende opgaver" />}
+              </>)}
+
+              {/* Phone */}
+              {currentView === 'phone' && (<>
+                {addingCall && <PhoneCallForm employees={employees} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await calls.addCall(d); setAddingCall(false) }} onCancel={() => setAddingCall(false)} />}
+                {!addingCall && <AddRow label="Tilføj opkald" onClick={() => setAddingCall(true)} />}
+                {activeCalls.map(c => <PhoneCallCard key={c.id} call={c} emp={c.assigned_to ? employees.get(c.assigned_to) : undefined} onCheck={() => calls.toggleCompleted(c.id, true)} onDel={() => calls.deleteCall(c.id)} onClick={() => setEditingCall(c)} />)}
+                {activeCalls.length === 0 && !addingCall && <Empty text="Ingen at ringe til" />}
+                {completedCalls.length > 0 && (
+                  <div style={{ marginTop:16 }}>
+                    <Collapse label={`Ringet (${completedCalls.length})`} open={false}>
+                      {completedCalls.map(c => <PhoneCallCard key={c.id} call={c} done emp={c.assigned_to ? employees.get(c.assigned_to) : undefined} onCheck={() => calls.toggleCompleted(c.id, false)} onDel={() => calls.deleteCall(c.id)} onClick={() => setEditingCall(c)} />)}
+                    </Collapse>
+                  </div>
+                )}
+              </>)}
+
+              {/* Code */}
+              {currentView === 'code' && (<>
+                {addingCode && <CodeTaskForm color={C.purple} titlePlaceholder="Site der skal codes..." onDone={async d => { await addTodo({ ...d, category: 'CODE' }); setAddingCode(false) }} onCancel={() => setAddingCode(false)} />}
+                {!addingCode && <AddRow label="Ny code-opgave" onClick={() => setAddingCode(true)} />}
+                {codeTasks.map(t => <CodeTaskCard key={t.id} t={t} color={C.purple} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {codeTasks.length === 0 && !addingCode && <Empty text="Ingen code opgaver" />}
+              </>)}
+
+              {/* Repair */}
+              {currentView === 'repair' && (<>
+                {addingRepair && <CodeTaskForm color={C.amber} titlePlaceholder="Hvad skal repareres..." onDone={async d => { await addTodo({ ...d, category: 'REPAIR' }); setAddingRepair(false) }} onCancel={() => setAddingRepair(false)} />}
+                {!addingRepair && <AddRow label="Tilføj reparation" onClick={() => setAddingRepair(true)} />}
+                {repairTasks.map(t => <CodeTaskCard key={t.id} t={t} color={C.amber} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                {repairTasks.length === 0 && !addingRepair && <Empty text="Intet at reparere" />}
+              </>)}
+
+              {/* Transport */}
+              {currentView === 'transport' && (<>
+                {addingTransport && <TransportForm employees={employees} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} kimId={kimEmp?.id} onDone={async d => { await transport.addItem(d); setAddingTransport(false) }} onCancel={() => setAddingTransport(false)} />}
+                {!addingTransport && <AddRow label="Tilføj transport" onClick={() => setAddingTransport(true)} />}
+                {toWest.length > 0 && (
+                  <div style={{ marginTop:8 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 0', fontSize:11, fontWeight:700, color:C.amber, textTransform:'uppercase' }}>
+                      <ArrowRight style={{ width:14, height:14 }} /> TIL VEST ({toWest.length})
+                    </div>
+                    {toWest.map(i => <TransportCard key={i.id} item={i} emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => transport.toggleCompleted(i.id, true)} onDel={() => transport.deleteItem(i.id)} onClick={() => setEditingTransport(i)} />)}
+                  </div>
+                )}
+                {toEast.length > 0 && (
+                  <div style={{ marginTop:8 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 0', fontSize:11, fontWeight:700, color:C.blue, textTransform:'uppercase' }}>
+                      <ArrowLeft style={{ width:14, height:14 }} /> TIL ØST ({toEast.length})
+                    </div>
+                    {toEast.map(i => <TransportCard key={i.id} item={i} emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => transport.toggleCompleted(i.id, true)} onDel={() => transport.deleteItem(i.id)} onClick={() => setEditingTransport(i)} />)}
+                  </div>
+                )}
+                {activeTransport.length === 0 && !addingTransport && <Empty text="Intet at transportere" />}
+                {completedTransport.length > 0 && (
+                  <div style={{ marginTop:16 }}>
+                    <Collapse label={`Leveret (${completedTransport.length})`} open={false}>
+                      {completedTransport.map(i => <TransportCard key={i.id} item={i} done emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => transport.toggleCompleted(i.id, false)} onDel={() => transport.deleteItem(i.id)} onClick={() => setEditingTransport(i)} />)}
+                    </Collapse>
+                  </div>
+                )}
+              </>)}
+
+              {/* Shopping */}
+              {currentView === 'shop' && (<>
+                {addingShop && <ShopForm onDone={async (t,n,u,d,urg) => { await shop.addItem(t,n,u,d,urg); setAddingShop(false) }} onCancel={() => setAddingShop(false)} />}
+                {!addingShop && <AddRow label="Tilføj til listen" onClick={() => setAddingShop(true)} />}
+                {pendShop.map(i => <ShopCard key={i.id} item={i} emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => shop.togglePurchased(i.id, true)} onDel={() => shop.deleteItem(i.id)} onClick={() => setEditingShop(i)} />)}
+                {pendShop.length === 0 && !addingShop && <Empty text="Listen er tom" />}
+                {doneShop.length > 0 && (
+                  <div style={{ marginTop:16 }}>
+                    <Collapse label={`Købt (${doneShop.length})`} open={false}>
+                      {doneShop.map(i => <ShopCard key={i.id} item={i} done emp={i.assigned_to ? employees.get(i.assigned_to) : undefined} onCheck={() => shop.togglePurchased(i.id, false)} onDel={() => shop.deleteItem(i.id)} onClick={() => setEditingShop(i)} />)}
+                    </Collapse>
+                  </div>
+                )}
+              </>)}
+
+              {/* Ideas */}
+              {currentView === 'ideas' && (<>
+                {ideaGroups.map(([cat, items]) => (
+                  <div key={cat} style={{ marginBottom:12 }}>
+                    <Collapse label={getCategoryLabel(cat)} count={items.length} color={CAT_COLORS[cat] || C.blue} open={true}>
+                      {items.map(t => <IdeaRow key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onOpen={setSelectedIdea} />)}
+                    </Collapse>
+                  </div>
                 ))}
-              </select>
-              <button onClick={() => setShowIdeas(true)} style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 12px', borderRadius:6, fontSize:10, fontWeight:700, cursor:'pointer', border:`1px solid ${C.purple}40`, background:'transparent', color:C.purple, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                <Lightbulb style={{ width:11, height:11 }} /> IDÉER ({ideaGroups.reduce((s,[,v])=>s+v.length,0)})
-              </button>
+                {ideaGroups.length === 0 && <Empty text="Ingen idéer" />}
+              </>)}
+
             </div>
           </div>
-          {!isMobile && <LiveClock />}
         </div>
-      </header>
+      </div>
 
-      {/* ── Mobile tabs ── */}
-      {isMobile && (
-        <div style={{ display:'flex', overflow:'auto', borderBottom:`1px solid ${C.border}`, background:C.surface, flexShrink:0 }}>
-          {[
-            { label: firstName(thomasEmp, 'Thomas'), color: C.blue },
-            { label: firstName(mariaEmp, 'Maria'), color: C.pink },
-            { label: 'Indkøb', color: C.green },
-            { label: 'Idéer', color: C.purple },
-          ].map((tab, i) => (
-            <button key={i} onClick={() => setMobileTab(i)} style={{
-              flex:'0 0 auto', padding:'10px 16px', fontSize:11, fontWeight:700, textTransform:'uppercase',
-              letterSpacing:'0.04em', border:'none', cursor:'pointer', whiteSpace:'nowrap',
-              background: mobileTab === i ? tab.color + '18' : 'transparent',
-              color: mobileTab === i ? tab.color : C.textMuted,
-              borderBottom: mobileTab === i ? `2px solid ${tab.color}` : '2px solid transparent',
-              transition:'all 0.15s',
-            }}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Content grid (4-col desktop / single tab mobile) ── */}
-      <div style={{ flex:1, overflow:'auto' }}>
-        <div style={{ maxWidth:1800, margin:'0 auto', padding: isMobile ? '16px' : '28px 40px', display:'grid', gridTemplateColumns:gridCols, gap: isMobile ? 16 : 24, alignItems:'start' }}>
+      {/* Old grid removed */}
+      <div style={{ display:'none' }}>
 
           {/* COL 1 — Thomas */}
           <Column title={`TODO ${firstName(thomasEmp, 'Thomas')}`} count={thomasTasks.length} color={C.blue} defaultCollapsed
@@ -519,7 +691,6 @@ export default function App() {
           </Column>
 
 
-        </div>
       </div>
 
       {/* ── Idea Detail Modal ── */}
@@ -782,16 +953,15 @@ export default function App() {
       {showLanding && !loading && (
         <LandingOverlay onSelect={(idx) => {
           setShowLanding(false)
-          // Click the column header to expand it, then scroll to it
-          setTimeout(() => {
-            const cols = document.querySelectorAll('[data-column]')
-            if (cols[idx]) {
-              const header = cols[idx].querySelector('div') as HTMLElement
-              if (header) header.click() // toggle open
-              cols[idx].scrollIntoView({ behavior:'smooth', block:'start' })
-            }
-          }, 100)
-        }} onDismiss={() => setShowLanding(false)} />
+          // Map landing index to view key + set URL via nuqs so refresh restores
+          const viewMap: ViewKey[] = ['thomas','maria','crew','transport','phone','shop']
+          const target = viewMap[idx] || 'today'
+          setCurrentView(target)
+          // Open due-popup only when a person is selected (Thomas/Maria/Crew)
+          if (idx === 0) setDuePopupFor('thomas')
+          else if (idx === 1) setDuePopupFor('maria')
+          else if (idx === 2) setDuePopupFor('crew')
+        }} onDismiss={() => { setShowLanding(false); setCurrentView('today') }} />
       )}
 
       {/* ── Floating Action Button (mobile) ── */}
@@ -811,6 +981,8 @@ export default function App() {
 
 /* ━━━ Reusable components ━━━ */
 
+/* StatPill kept for potential reuse (sidebar-era layout replaced header stats) */
+// @ts-expect-error -- intentionally unused after redesign
 function StatPill({ n, label, color }: { n:number; label:string; color:string }) {
   return (
     <div style={{ display:'flex', alignItems:'center', gap:6 }}>
@@ -2761,6 +2933,193 @@ function PersonalViewModal({ empId, empName, color, tasks, shopItems, phoneCalls
 }
 
 /* ━━━ Landing Overlay ━━━ */
+/* ━━━ Sidebar ━━━ */
+type ViewKeyLocal = 'today' | 'upcoming' | 'inbox' | 'thomas' | 'maria' | 'crew' | 'phone' | 'code' | 'repair' | 'transport' | 'shop' | 'ideas'
+
+function Sidebar({
+  open, isMobile, onClose, currentView, setCurrentView, counts, dueCounts,
+  thomasName, mariaName, thomasId, mariaId, gpsActive, connected,
+  onQuickCreate, onShowIdeas, onShowPrintTransport, onDropTodo,
+}: {
+  open: boolean
+  isMobile: boolean
+  onClose: () => void
+  currentView: ViewKeyLocal
+  setCurrentView: (v: ViewKeyLocal) => void
+  counts: Record<ViewKeyLocal, number>
+  dueCounts: Partial<Record<ViewKeyLocal, number>>
+  thomasName: string
+  mariaName: string
+  thomasId?: string
+  mariaId?: string
+  gpsActive: boolean
+  connected: boolean
+  onQuickCreate: () => void
+  onShowIdeas: () => void
+  onShowPrintTransport: () => void
+  onDropTodo: (view: ViewKeyLocal, id: string) => void | Promise<any>
+}) {
+  if (!open) return null
+
+  const width = isMobile ? 280 : 260
+  const wrapperStyle: React.CSSProperties = isMobile
+    ? { position:'fixed', top:0, left:0, bottom:0, width, zIndex:900, background:C.surface, borderRight:`1px solid ${C.border}`, display:'flex', flexDirection:'column', overflow:'hidden' }
+    : { width, flexShrink:0, background:C.surface, borderRight:`1px solid ${C.border}`, display:'flex', flexDirection:'column', overflow:'hidden' }
+
+  return (
+    <aside style={wrapperStyle}>
+      {/* Top: quick-create button */}
+      <div style={{ padding:'16px 16px 8px', borderBottom:`1px solid ${C.border}` }}>
+        <button onClick={onQuickCreate} style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, border:`1px solid ${C.red}40`, background:'transparent', color:C.red, fontSize:12, fontWeight:700, cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>
+          <div style={{ width:22, height:22, borderRadius:11, background:C.red, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <Plus style={{ width:14, height:14, color:'#fff' }} />
+          </div>
+          Tilføj opgave
+        </button>
+      </div>
+
+      {/* Scrollable nav */}
+      <nav style={{ flex:1, overflowY:'auto', padding:'8px 8px 16px' }}>
+        {/* Quick views */}
+        <SidebarItem icon={<Calendar style={{ width:14, height:14 }} />} label="I dag" count={counts.today} active={currentView==='today'} color={C.red} highlight={(dueCounts.today || 0) > 0} onClick={() => setCurrentView('today')} />
+        <SidebarItem icon={<ChevronRight style={{ width:14, height:14 }} />} label="Kommende" count={counts.upcoming} active={currentView==='upcoming'} color={C.blue} onClick={() => setCurrentView('upcoming')} />
+        <SidebarItem icon={<ShoppingCart style={{ width:14, height:14 }} />} label="Indbakke" count={counts.inbox} active={currentView==='inbox'} color={C.textMuted} onClick={() => setCurrentView('inbox')} onDropTodo={id => onDropTodo('inbox', id)} />
+
+        {/* Personer */}
+        <div style={{ fontSize:10, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 10px 6px' }}>Personer</div>
+        <SidebarItem dotColor={C.blue} label={thomasName} count={counts.thomas} active={currentView==='thomas'} color={C.blue} highlight={(dueCounts.thomas || 0) > 0} onClick={() => setCurrentView('thomas')} onDropTodo={thomasId ? id => onDropTodo('thomas', id) : undefined} />
+        <SidebarItem dotColor={C.pink} label={mariaName} count={counts.maria} active={currentView==='maria'} color={C.pink} highlight={(dueCounts.maria || 0) > 0} onClick={() => setCurrentView('maria')} onDropTodo={mariaId ? id => onDropTodo('maria', id) : undefined} />
+        <SidebarItem dotColor={C.cyan} label="Crew" count={counts.crew} active={currentView==='crew'} color={C.cyan} highlight={(dueCounts.crew || 0) > 0} onClick={() => setCurrentView('crew')} onDropTodo={id => onDropTodo('crew', id)} />
+
+        {/* Lister */}
+        <div style={{ fontSize:10, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 10px 6px' }}>Lister</div>
+        <SidebarItem dotColor={C.amber} label="Ringes til" count={counts.phone} active={currentView==='phone'} color={C.amber} highlight={(dueCounts.phone || 0) > 0} onClick={() => setCurrentView('phone')} />
+        <SidebarItem dotColor={C.purple} label="Code" count={counts.code} active={currentView==='code'} color={C.purple} highlight={(dueCounts.code || 0) > 0} onClick={() => setCurrentView('code')} onDropTodo={id => onDropTodo('code', id)} />
+        <SidebarItem dotColor={C.amber} label="Repareres" count={counts.repair} active={currentView==='repair'} color={C.amber} highlight={(dueCounts.repair || 0) > 0} onClick={() => setCurrentView('repair')} onDropTodo={id => onDropTodo('repair', id)} />
+        <SidebarItem dotColor={C.cyan} label="Øst / Vest" count={counts.transport} active={currentView==='transport'} color={C.cyan} onClick={() => setCurrentView('transport')} />
+        <SidebarItem dotColor={C.green} label="Indkøb" count={counts.shop} active={currentView==='shop'} color={C.green} highlight={(dueCounts.shop || 0) > 0} onClick={() => setCurrentView('shop')} />
+        <SidebarItem dotColor={C.purple} label="Idéer" count={counts.ideas} active={currentView==='ideas'} color={C.purple} onClick={() => setCurrentView('ideas')} />
+
+        {/* Tools */}
+        <div style={{ fontSize:10, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 10px 6px' }}>Værktøjer</div>
+        <button onClick={onShowPrintTransport} style={sidebarBtnStyle()}>
+          <Printer style={{ width:14, height:14, color:C.cyan }} />
+          <span style={{ flex:1, textAlign:'left' }}>Print Øst/Vest</span>
+        </button>
+        <button onClick={onShowIdeas} style={sidebarBtnStyle()}>
+          <Lightbulb style={{ width:14, height:14, color:C.purple }} />
+          <span style={{ flex:1, textAlign:'left' }}>Idéer-browser</span>
+        </button>
+      </nav>
+
+      {/* Bottom: status */}
+      <div style={{ padding:'10px 16px', borderTop:`1px solid ${C.border}`, display:'flex', alignItems:'center', gap:10, fontSize:10, color:C.textMuted }}>
+        <div style={{ width:7, height:7, borderRadius:4, background: connected ? '#34d399' : C.red }} title={connected ? 'Forbundet' : 'Offline'} />
+        <span>{connected ? 'Live' : 'Offline'}</span>
+        {gpsActive && <><div style={{ width:7, height:7, borderRadius:4, background:C.cyan, boxShadow:`0 0 6px ${C.cyan}` }} /><span>GPS</span></>}
+        {isMobile && <button onClick={onClose} style={{ marginLeft:'auto', padding:4, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer' }}><X style={{ width:14, height:14 }} /></button>}
+      </div>
+    </aside>
+  )
+}
+
+function sidebarBtnStyle(active?: boolean, bgHover?: string): React.CSSProperties {
+  return {
+    width:'100%', display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:6,
+    border:'none', background: active ? (bgHover || C.red + '18') : 'transparent',
+    color: active ? C.text : C.textSec, fontSize:13, fontWeight: active ? 600 : 500,
+    cursor:'pointer', textAlign:'left', transition:'background 0.12s',
+  }
+}
+
+function SidebarItem({ icon, dotColor, label, count, active, color, highlight, onClick, onDropTodo }: {
+  icon?: ReactNode; dotColor?: string; label: string; count: number; active: boolean; color: string; highlight?: boolean
+  onClick: () => void; onDropTodo?: (id: string) => void | Promise<any>
+}) {
+  const [dragOver, setDragOver] = useState(false)
+  const dropProps = onDropTodo ? {
+    onDragOver: (e: React.DragEvent) => { if (e.dataTransfer.types.includes('application/x-todo-id')) { e.preventDefault(); setDragOver(true) } },
+    onDragLeave: () => setDragOver(false),
+    onDrop: async (e: React.DragEvent) => {
+      e.preventDefault(); setDragOver(false)
+      const id = e.dataTransfer.getData('application/x-todo-id')
+      if (id) await onDropTodo(id)
+    },
+  } : {}
+  return (
+    <button onClick={onClick} {...dropProps} style={{
+      width:'100%', display:'flex', alignItems:'center', gap:10, padding:'7px 10px', borderRadius:6,
+      border: dragOver ? `1px dashed ${color}` : '1px solid transparent',
+      background: active ? C.card : dragOver ? color + '14' : 'transparent',
+      color: active ? C.text : C.textSec, fontSize:13, fontWeight: active ? 600 : 500,
+      cursor:'pointer', textAlign:'left', transition:'background 0.12s',
+      marginBottom:1,
+    }}
+      onMouseEnter={e => { if (!active && !dragOver) e.currentTarget.style.background = C.cardHover }}
+      onMouseLeave={e => { if (!active && !dragOver) e.currentTarget.style.background = 'transparent' }}>
+      {icon ? icon : dotColor && <div style={{ width:8, height:8, borderRadius:4, background:dotColor, flexShrink:0 }} />}
+      <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{label}</span>
+      {highlight ? (
+        <span style={{ fontSize:10, fontWeight:800, color:C.red, background:C.red+'18', border:`1px solid ${C.red}40`, padding:'0 6px', borderRadius:10, minWidth:18, textAlign:'center' }}>! {count}</span>
+      ) : count > 0 ? (
+        <span style={{ fontSize:11, fontWeight:600, color:C.textMuted, minWidth:18, textAlign:'right' }}>{count}</span>
+      ) : null}
+    </button>
+  )
+}
+
+/* ━━━ Main View Header ━━━ */
+function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName }: {
+  currentView: ViewKeyLocal
+  isMobile: boolean
+  onToggleSidebar: () => void
+  counts: Record<ViewKeyLocal, number>
+  thomasName: string
+  mariaName: string
+}) {
+  const TITLES: Record<ViewKeyLocal, string> = {
+    today: 'I dag',
+    upcoming: 'Kommende',
+    inbox: 'Indbakke',
+    thomas: `TODO ${thomasName}`,
+    maria: `TODO ${mariaName}`,
+    crew: 'Crew',
+    phone: 'Ringes til',
+    code: 'Code',
+    repair: 'Repareres',
+    transport: 'Øst / Vest',
+    shop: 'Indkøb',
+    ideas: 'Idéer & Inspiration',
+  }
+  return (
+    <header style={{ padding: isMobile ? '12px 16px' : '20px 40px', borderBottom:`1px solid ${C.border}`, background:C.surface, display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+      {isMobile && (
+        <button onClick={onToggleSidebar} style={{ padding:6, border:`1px solid ${C.border}`, borderRadius:6, background:'transparent', color:C.textSec, cursor:'pointer' }}>
+          <ChevronRight style={{ width:16, height:16 }} />
+        </button>
+      )}
+      <h1 style={{ fontSize: isMobile ? 18 : 22, fontWeight:700, color:C.text, letterSpacing:'-0.01em' }}>{TITLES[currentView]}</h1>
+      <span style={{ fontSize:12, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 10px', borderRadius:12 }}>{counts[currentView]}</span>
+      {!isMobile && <div style={{ marginLeft:'auto' }}><LiveClock /></div>}
+    </header>
+  )
+}
+
+/* ━━━ Inline Add Row (list view) ━━━ */
+function AddRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{
+      width:'100%', display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:8,
+      border:`1px dashed ${C.border}`, background:'transparent', color:C.textMuted, fontSize:12, fontWeight:600,
+      cursor:'pointer', marginBottom:10, transition:'all 0.15s',
+    }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = C.red+'60'; e.currentTarget.style.color = C.red }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted }}>
+      <Plus style={{ width:14, height:14 }} /> {label}
+    </button>
+  )
+}
+
 function LandingOverlay({ onSelect, onDismiss }: { onSelect:(idx:number)=>void; onDismiss:()=>void }) {
   const [visible, setVisible] = useState(false)
   useEffect(() => { requestAnimationFrame(() => setVisible(true)) }, [])
