@@ -5,6 +5,7 @@ import { useEmployees } from './hooks/useEmployees'
 import { useShopping } from './hooks/useShopping'
 import { usePhoneCalls } from './hooks/usePhoneCalls'
 import { useTransport } from './hooks/useTransport'
+import { useLists } from './hooks/useLists'
 import { useGeofence } from './hooks/useGeofence'
 import { useWakeLock } from './hooks/useWakeLock'
 import { supabase } from './lib/supabase'
@@ -137,8 +138,7 @@ export default function App() {
     const t = active.filter(t => {
       if (isIdeaCategory(t.category)) return false
       const c = t.category
-      if (c === 'CODE' || c?.startsWith('CODE#')) return false
-      if (c === 'REPAIR' || c?.startsWith('REPAIR#')) return false
+      if (c === 'CODE' || c === 'REPAIR') return false
       if (c?.startsWith('custom:')) return false
       return true
     })
@@ -161,7 +161,7 @@ export default function App() {
   const crewTasks = useMemo(() => tasks.filter(t => t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id), [tasks, thomasEmp, mariaEmp])
   const unassignedTasks = useMemo(() => tasks.filter(t => !t.assigned_to), [tasks])
   const codeTasks = useMemo(() => {
-    const t = active.filter(x => x.category === 'CODE' || x.category?.startsWith('CODE#'))
+    const t = active.filter(x => x.category === 'CODE')
     t.sort((a,b) => {
       const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
       return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -169,7 +169,7 @@ export default function App() {
     return t
   }, [active])
   const repairTasks = useMemo(() => {
-    const t = active.filter(x => x.category === 'REPAIR' || x.category?.startsWith('REPAIR#'))
+    const t = active.filter(x => x.category === 'REPAIR')
     t.sort((a,b) => {
       const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
       return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
@@ -251,70 +251,33 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(winW >= 768)
   useEffect(() => { if (winW >= 768) setSidebarOpen(true) }, [winW])
 
-  // Custom lists — user-defined lists persisted in localStorage
-  type CustomList = { id: string; name: string; color: string }
-  const [customLists, setCustomLists] = useState<CustomList[]>(() => {
-    try { return JSON.parse(localStorage.getItem('customLists') || '[]') } catch { return [] }
-  })
-  const saveCustomLists = (lists: CustomList[]) => {
-    setCustomLists(lists)
-    localStorage.setItem('customLists', JSON.stringify(lists))
-  }
+  // Custom lists + list sections — persisted in Supabase
+  const { customLists, sectionsByList, addCustomList: addCustomListDb, renameCustomList: renameCustomListDb, deleteCustomList: deleteCustomListDb,
+          addSection, renameSection, setSectionColor, deleteSection } = useLists()
   const [creatingList, setCreatingList] = useState(false)
-  const addCustomList = (name: string, color: string) => {
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-    saveCustomLists([...customLists, { id, name, color }])
-  }
+  const addCustomList = (name: string, color: string) => { addCustomListDb(name, color) }
+  const renameCustomList = (id: string, name: string) => { renameCustomListDb(id, name) }
   const deleteCustomList = (id: string) => {
-    saveCustomLists(customLists.filter(l => l.id !== id))
+    deleteCustomListDb(id)
     if (currentView === `custom:${id}`) setCurrentView('today')
   }
-  const renameCustomList = (id: string, name: string) => {
-    if (!name.trim()) return
-    saveCustomLists(customLists.map(l => l.id === id ? { ...l, name: name.trim() } : l))
+  const addListSection = (listKey: string, name: string, color?: string) => { addSection(listKey, name, color) }
+  const renameListSection = (_listKey: string, sectionId: string, name: string) => { renameSection(sectionId, name) }
+  const setListSectionColor = (_listKey: string, sectionId: string, color: string) => { setSectionColor(sectionId, color) }
+  const deleteListSection = async (_listKey: string, sectionId: string) => {
+    // Clear section_id on any tasks in this section (DB cascade handles it via on delete set null)
+    await deleteSection(sectionId)
   }
 
-  // List sections — sub-groups within Code, Repair, or Custom lists
-  type ListSection = { id: string; name: string; color?: string }
-  const [listSections, setListSections] = useState<Record<string, ListSection[]>>(() => {
-    try { return JSON.parse(localStorage.getItem('listSections') || '{}') } catch { return {} }
-  })
-  // Persist whenever sections change
-  useEffect(() => {
-    try { localStorage.setItem('listSections', JSON.stringify(listSections)) } catch { /* quota */ }
-  }, [listSections])
-  const addListSection = (listKey: string, name: string, color?: string) => {
-    if (!name.trim()) return
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-    setListSections(prev => ({ ...prev, [listKey]: [...(prev[listKey] || []), { id, name: name.trim(), color }] }))
-  }
-  const setSectionColor = (listKey: string, sectionId: string, color: string) => {
-    setListSections(prev => ({ ...prev, [listKey]: (prev[listKey] || []).map(s => s.id === sectionId ? { ...s, color } : s) }))
-  }
-  const deleteListSection = async (listKey: string, sectionId: string) => {
-    // Move tasks in this section back to the base list
-    const tasksToMove = active.filter(t => t.category === `${listKey}#${sectionId}`)
-    for (const t of tasksToMove) {
-      await updateTodo(t.id, { category: listKey })
-    }
-    setListSections(prev => ({ ...prev, [listKey]: (prev[listKey] || []).filter(s => s.id !== sectionId) }))
-  }
-  const renameListSection = (listKey: string, sectionId: string, name: string) => {
-    if (!name.trim()) return
-    setListSections(prev => ({ ...prev, [listKey]: (prev[listKey] || []).map(s => s.id === sectionId ? { ...s, name: name.trim() } : s) }))
-  }
-  // Group tasks by section for a given list
-  const groupTasksBySection = (listKey: string, tasks: Todo[]): { sectionId: string | null; name: string; color?: string; items: Todo[] }[] => {
-    const sections = listSections[listKey] || []
-    const groups: { sectionId: string | null; name: string; color?: string; items: Todo[] }[] = [
+  // Group tasks by section for a given list key (uses todo.section_id)
+  const groupTasksBySection = (listKey: string, tasks: Todo[]): { sectionId: string | null; name: string; color?: string | null; items: Todo[] }[] => {
+    const sections = sectionsByList[listKey] || []
+    const groups: { sectionId: string | null; name: string; color?: string | null; items: Todo[] }[] = [
       { sectionId: null, name: 'Ingen sektion', items: [] },
     ]
     sections.forEach(s => groups.push({ sectionId: s.id, name: s.name, color: s.color, items: [] }))
     tasks.forEach(t => {
-      const cat = t.category || ''
-      const hashIdx = cat.indexOf('#')
-      const sid = hashIdx >= 0 ? cat.slice(hashIdx + 1) : null
-      const target = groups.find(g => g.sectionId === sid) || groups[0]
+      const target = groups.find(g => g.sectionId === t.section_id) || groups[0]
       target.items.push(t)
     })
     return groups
@@ -323,7 +286,7 @@ export default function App() {
   const customListTasks = useMemo(() => {
     const m = new Map<string, Todo[]>()
     customLists.forEach(l => {
-      m.set(l.id, active.filter(t => t.category === `custom:${l.id}` || t.category?.startsWith(`custom:${l.id}#`)).sort((a,b) => {
+      m.set(l.id, active.filter(t => t.category === `custom:${l.id}`).sort((a,b) => {
         const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
         return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       }))
@@ -534,7 +497,20 @@ export default function App() {
               {currentView === 'thomas' && (<>
                 {addingTaskThomas && <TaskForm employees={employees} defaultAssign={thomasEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || thomasEmp?.id || null }); setAddingTaskThomas(false) }} onCancel={() => setAddingTaskThomas(false)} />}
                 {!addingTaskThomas && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskThomas(true)} />}
-                {thomasTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                <SectionManager listKey="thomas" sections={sectionsByList['thomas'] || []} onAdd={name => addListSection('thomas', name)} />
+                <SectionedList
+                  listKey="thomas"
+                  groups={groupTasksBySection('thomas', thomasTasks)}
+                  color={C.blue}
+                  employees={employees}
+                  onToggle={t => updateTodo(t.id, { resolved: true })}
+                  onDelete={t => deleteTodo(t.id)}
+                  onClickTask={t => setEditingTodo(t)}
+                  onDropTodo={async (id, sectionId) => { await updateTodo(id, { section_id: sectionId, assigned_to: thomasEmp?.id || null, category: null }) }}
+                  onDeleteSection={sid => deleteListSection('thomas', sid)}
+                  onRenameSection={(sid, name) => renameListSection('thomas', sid, name)}
+                  onSetSectionColor={(sid, col) => setListSectionColor('thomas', sid, col)}
+                />
                 {thomasTasks.length === 0 && !addingTaskThomas && <Empty text="Ingen aktive opgaver" />}
               </>)}
 
@@ -542,7 +518,20 @@ export default function App() {
               {currentView === 'maria' && (<>
                 {addingTaskMaria && <TaskForm employees={employees} defaultAssign={mariaEmp?.id} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, assigned_to: d.assigned_to || mariaEmp?.id || null }); setAddingTaskMaria(false) }} onCancel={() => setAddingTaskMaria(false)} />}
                 {!addingTaskMaria && <AddRow label="Tilføj opgave" onClick={() => setAddingTaskMaria(true)} />}
-                {mariaTasks.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                <SectionManager listKey="maria" sections={sectionsByList['maria'] || []} onAdd={name => addListSection('maria', name)} />
+                <SectionedList
+                  listKey="maria"
+                  groups={groupTasksBySection('maria', mariaTasks)}
+                  color={C.pink}
+                  employees={employees}
+                  onToggle={t => updateTodo(t.id, { resolved: true })}
+                  onDelete={t => deleteTodo(t.id)}
+                  onClickTask={t => setEditingTodo(t)}
+                  onDropTodo={async (id, sectionId) => { await updateTodo(id, { section_id: sectionId, assigned_to: mariaEmp?.id || null, category: null }) }}
+                  onDeleteSection={sid => deleteListSection('maria', sid)}
+                  onRenameSection={(sid, name) => renameListSection('maria', sid, name)}
+                  onSetSectionColor={(sid, col) => setListSectionColor('maria', sid, col)}
+                />
                 {mariaTasks.length === 0 && !addingTaskMaria && <Empty text="Ingen aktive opgaver" />}
               </>)}
 
@@ -663,7 +652,7 @@ export default function App() {
               {currentView === 'code' && (<>
                 {addingCode && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: 'CODE' }); setAddingCode(false) }} onCancel={() => setAddingCode(false)} />}
                 {!addingCode && <AddRow label="Ny code-opgave" onClick={() => setAddingCode(true)} />}
-                <SectionManager listKey="CODE" sections={listSections['CODE'] || []} onAdd={name => addListSection('CODE', name)} />
+                <SectionManager listKey="CODE" sections={sectionsByList['CODE'] || []} onAdd={name => addListSection('CODE', name)} />
                 <SectionedList
                   listKey="CODE"
                   groups={groupTasksBySection('CODE', codeTasks)}
@@ -672,10 +661,10 @@ export default function App() {
                   onToggle={t => updateTodo(t.id, { resolved: true })}
                   onDelete={t => deleteTodo(t.id)}
                   onClickTask={t => setEditingTodo(t)}
-                  onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
+                  onDropTodo={async (id, sectionId) => { await updateTodo(id, { section_id: sectionId, category: 'CODE' }) }}
                   onDeleteSection={sid => deleteListSection('CODE', sid)}
                   onRenameSection={(sid, name) => renameListSection('CODE', sid, name)}
-                  onSetSectionColor={(sid, col) => setSectionColor('CODE', sid, col)}
+                  onSetSectionColor={(sid, col) => setListSectionColor('CODE', sid, col)}
                 />
                 {codeTasks.length === 0 && !addingCode && <Empty text="Ingen code opgaver" />}
               </>)}
@@ -684,7 +673,7 @@ export default function App() {
               {currentView === 'repair' && (<>
                 {addingRepair && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: 'REPAIR' }); setAddingRepair(false) }} onCancel={() => setAddingRepair(false)} />}
                 {!addingRepair && <AddRow label="Tilføj reparation" onClick={() => setAddingRepair(true)} />}
-                <SectionManager listKey="REPAIR" sections={listSections['REPAIR'] || []} onAdd={name => addListSection('REPAIR', name)} />
+                <SectionManager listKey="REPAIR" sections={sectionsByList['REPAIR'] || []} onAdd={name => addListSection('REPAIR', name)} />
                 <SectionedList
                   listKey="REPAIR"
                   groups={groupTasksBySection('REPAIR', repairTasks)}
@@ -693,10 +682,10 @@ export default function App() {
                   onToggle={t => updateTodo(t.id, { resolved: true })}
                   onDelete={t => deleteTodo(t.id)}
                   onClickTask={t => setEditingTodo(t)}
-                  onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
+                  onDropTodo={async (id, sectionId) => { await updateTodo(id, { section_id: sectionId, category: 'REPAIR' }) }}
                   onDeleteSection={sid => deleteListSection('REPAIR', sid)}
                   onRenameSection={(sid, name) => renameListSection('REPAIR', sid, name)}
-                  onSetSectionColor={(sid, col) => setSectionColor('REPAIR', sid, col)}
+                  onSetSectionColor={(sid, col) => setListSectionColor('REPAIR', sid, col)}
                 />
                 {repairTasks.length === 0 && !addingRepair && <Empty text="Intet at reparere" />}
               </>)}
@@ -769,7 +758,7 @@ export default function App() {
                   <>
                     {addingTaskThomas && <TaskForm employees={employees} locations={locations} thomasId={thomasEmp?.id} mariaId={mariaEmp?.id} onDone={async d => { await addTodo({ ...d, category: listKey }); setAddingTaskThomas(false) }} onCancel={() => setAddingTaskThomas(false)} />}
                     {!addingTaskThomas && <AddRow label={`Tilføj til ${list.name}`} onClick={() => setAddingTaskThomas(true)} />}
-                    <SectionManager listKey={listKey} sections={listSections[listKey] || []} onAdd={name => addListSection(listKey, name)} />
+                    <SectionManager listKey={listKey} sections={sectionsByList[listKey] || []} onAdd={name => addListSection(listKey, name)} />
                     <SectionedList
                       listKey={listKey}
                       groups={groupTasksBySection(listKey, items)}
@@ -778,10 +767,10 @@ export default function App() {
                       onToggle={t => updateTodo(t.id, { resolved: true })}
                       onDelete={t => deleteTodo(t.id)}
                       onClickTask={t => setEditingTodo(t)}
-                      onDropTodo={async (id, targetCat) => { await updateTodo(id, { category: targetCat }) }}
+                      onDropTodo={async (id, sectionId) => { await updateTodo(id, { section_id: sectionId, category: listKey }) }}
                       onDeleteSection={sid => deleteListSection(listKey, sid)}
                       onRenameSection={(sid, name) => renameListSection(listKey, sid, name)}
-                      onSetSectionColor={(sid, col) => setSectionColor(listKey, sid, col)}
+                      onSetSectionColor={(sid, col) => setListSectionColor(listKey, sid, col)}
                     />
                     {items.length === 0 && !addingTaskThomas && <Empty text="Listen er tom — træk opgaver hertil eller tilføj en ny" />}
                   </>
@@ -3322,41 +3311,38 @@ function SectionManager({ sections, onAdd }: { listKey: string; sections: { id: 
 }
 
 /* ━━━ Sectioned List — renders tasks grouped by section with drop targets ━━━ */
-function SectionedList({ listKey, groups, color, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection, onRenameSection, onSetSectionColor }: {
+function SectionedList({ groups, color, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection, onRenameSection, onSetSectionColor }: {
   listKey: string
-  groups: { sectionId: string | null; name: string; color?: string; items: Todo[] }[]
+  groups: { sectionId: string | null; name: string; color?: string | null; items: Todo[] }[]
   color: string
   employees: Map<string, Employee>
   onToggle: (t: Todo) => void
   onDelete: (t: Todo) => void
   onClickTask: (t: Todo) => void
-  onDropTodo: (id: string, targetCategory: string) => void | Promise<any>
+  onDropTodo: (todoId: string, targetSectionId: string | null) => void | Promise<any>
   onDeleteSection: (sectionId: string) => void | Promise<any>
   onRenameSection: (sectionId: string, name: string) => void
   onSetSectionColor: (sectionId: string, color: string) => void
 }) {
   return (
     <>
-      {groups.map(g => {
-        const targetCat = g.sectionId ? `${listKey}#${g.sectionId}` : listKey
-        return (
-          <SectionBlock
-            key={g.sectionId || 'none'}
-            name={g.name}
-            color={g.color || color}
-            items={g.items}
-            isDefault={!g.sectionId}
-            employees={employees}
-            onToggle={onToggle}
-            onDelete={onDelete}
-            onClickTask={onClickTask}
-            onDropTodo={id => onDropTodo(id, targetCat)}
-            onDeleteSection={g.sectionId ? () => onDeleteSection(g.sectionId!) : undefined}
-            onRenameSection={g.sectionId ? (name: string) => onRenameSection(g.sectionId!, name) : undefined}
-            onSetColor={g.sectionId ? (col: string) => onSetSectionColor(g.sectionId!, col) : undefined}
-          />
-        )
-      })}
+      {groups.map(g => (
+        <SectionBlock
+          key={g.sectionId || 'none'}
+          name={g.name}
+          color={g.color || color}
+          items={g.items}
+          isDefault={!g.sectionId}
+          employees={employees}
+          onToggle={onToggle}
+          onDelete={onDelete}
+          onClickTask={onClickTask}
+          onDropTodo={id => onDropTodo(id, g.sectionId)}
+          onDeleteSection={g.sectionId ? () => onDeleteSection(g.sectionId!) : undefined}
+          onRenameSection={g.sectionId ? (name: string) => onRenameSection(g.sectionId!, name) : undefined}
+          onSetColor={g.sectionId ? (col: string) => onSetSectionColor(g.sectionId!, col) : undefined}
+        />
+      ))}
     </>
   )
 }

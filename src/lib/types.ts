@@ -17,6 +17,7 @@ export interface Todo {
   lon: number | null
   geo_address: string | null
   category: string | null
+  section_id: string | null
   images: string[] | null
 }
 
