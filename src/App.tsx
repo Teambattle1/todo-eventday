@@ -279,19 +279,17 @@ export default function App() {
   const [listSections, setListSections] = useState<Record<string, ListSection[]>>(() => {
     try { return JSON.parse(localStorage.getItem('listSections') || '{}') } catch { return {} }
   })
-  const saveListSections = (next: Record<string, ListSection[]>) => {
-    setListSections(next)
-    localStorage.setItem('listSections', JSON.stringify(next))
-  }
+  // Persist whenever sections change
+  useEffect(() => {
+    try { localStorage.setItem('listSections', JSON.stringify(listSections)) } catch { /* quota */ }
+  }, [listSections])
   const addListSection = (listKey: string, name: string, color?: string) => {
     if (!name.trim()) return
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-    const curr = listSections[listKey] || []
-    saveListSections({ ...listSections, [listKey]: [...curr, { id, name: name.trim(), color }] })
+    setListSections(prev => ({ ...prev, [listKey]: [...(prev[listKey] || []), { id, name: name.trim(), color }] }))
   }
   const setSectionColor = (listKey: string, sectionId: string, color: string) => {
-    const curr = listSections[listKey] || []
-    saveListSections({ ...listSections, [listKey]: curr.map(s => s.id === sectionId ? { ...s, color } : s) })
+    setListSections(prev => ({ ...prev, [listKey]: (prev[listKey] || []).map(s => s.id === sectionId ? { ...s, color } : s) }))
   }
   const deleteListSection = async (listKey: string, sectionId: string) => {
     // Move tasks in this section back to the base list
@@ -299,14 +297,11 @@ export default function App() {
     for (const t of tasksToMove) {
       await updateTodo(t.id, { category: listKey })
     }
-    const next = { ...listSections, [listKey]: (listSections[listKey] || []).filter(s => s.id !== sectionId) }
-    saveListSections(next)
+    setListSections(prev => ({ ...prev, [listKey]: (prev[listKey] || []).filter(s => s.id !== sectionId) }))
   }
   const renameListSection = (listKey: string, sectionId: string, name: string) => {
     if (!name.trim()) return
-    const curr = listSections[listKey] || []
-    const next = { ...listSections, [listKey]: curr.map(s => s.id === sectionId ? { ...s, name: name.trim() } : s) }
-    saveListSections(next)
+    setListSections(prev => ({ ...prev, [listKey]: (prev[listKey] || []).map(s => s.id === sectionId ? { ...s, name: name.trim() } : s) }))
   }
   // Group tasks by section for a given list
   const groupTasksBySection = (listKey: string, tasks: Todo[]): { sectionId: string | null; name: string; color?: string; items: Todo[] }[] => {
