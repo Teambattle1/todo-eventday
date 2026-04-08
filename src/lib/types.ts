@@ -55,3 +55,29 @@ export interface ShoppingItem {
   geo_address: string | null
   images: string[] | null
 }
+
+export interface TransportItem {
+  id: string
+  title: string
+  direction: 'east_to_west' | 'west_to_east'
+  note: string | null
+  assigned_to: string | null
+  completed: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface PhoneCall {
+  id: string
+  navn: string
+  nummer: string
+  firma: string | null
+  note: string | null
+  assigned_to: string | null
+  completed: boolean
+  urgent: boolean
+  due_date: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}

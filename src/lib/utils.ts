@@ -7,7 +7,7 @@ export const PRIORITY_CONFIG: Record<string, { color: string; label: string; ord
   'Prioritet 1': { color: '#ef4444', label: 'Prioritet 1', order: 2 },
   'Prioritet 2': { color: '#eab308', label: 'Prioritet 2', order: 3 },
   'Prioritet 3': { color: '#22c55e', label: 'Prioritet 3', order: 4 },
-  Normal:       { color: '#3b82f6', label: 'Normal',       order: 5 },
+  Normal:       { color: '#3b82f6', label: 'Haster ikke', order: 5 },
   medium:       { color: '#94a3b8', label: 'Medium',       order: 6 },
   let:          { color: '#34d399', label: 'Let',           order: 7 },
   'Ved lejlighed': { color: '#6b7280', label: 'Ved lejlighed', order: 8 },
@@ -88,6 +88,8 @@ export function getCategoryLabel(category: string | null): string {
     case 'idea-activity': return 'Aktivitetsidéer'
     case 'idea-company': return 'Firmaer'
     case 'IDEER': return 'Idéer fra Crew'
+    case 'CODE': return 'CODE'
+    case 'REPAIR': return 'Repareres'
     default: return 'Opgaver'
   }
 }
