@@ -17,7 +17,7 @@ import {
   decodeHtmlEntities, isOverdue, getInitials, hashColor,
 } from './lib/utils'
 import {
-  Plus, Check, Trash2, ChevronDown, ChevronRight, AlertTriangle,
+  Plus, Check, Trash2, ChevronDown, ChevronUp, ChevronRight, AlertTriangle,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
   Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
   Mic, MicOff, Keyboard, Bell,
@@ -1259,17 +1259,27 @@ function DuePill({ date }: { date:string|null }) {
   )
 }
 
-/* ━━━ Date Picker with weekend highlighting ━━━ */
+/* ━━━ Date / DateTime Picker with weekend highlighting ━━━ */
 const DAY_NAMES = ['Ma', 'Ti', 'On', 'To', 'Fr', 'Lø', 'Sø']
 const MONTH_NAMES = ['Januar','Februar','Marts','April','Maj','Juni','Juli','August','September','Oktober','November','December']
+const MONTH_NAMES_SHORT = ['jan.','feb.','mar.','apr.','maj','jun.','jul.','aug.','sep.','okt.','nov.','dec.']
 
-function DatePicker({ value, onChange, style: wrapStyle }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
+function DatePicker({ value, onChange, showTime, style: wrapStyle }: { value: string; onChange: (v: string) => void; showTime?: boolean; style?: React.CSSProperties }) {
+  // value format: "YYYY-MM-DD" (date-only) or "YYYY-MM-DD HH:mm" (datetime)
+  const datePart = value ? value.slice(0, 10) : ''
+  const timePart = value && value.length > 10 ? value.slice(11, 16) : ''
+  const selHour = timePart ? parseInt(timePart.slice(0, 2), 10) : 12
+  const selMin = timePart ? parseInt(timePart.slice(3, 5), 10) : 0
+
   const [open, setOpen] = useState(false)
+  const [monthDropdown, setMonthDropdown] = useState(false)
   const [viewDate, setViewDate] = useState(() => {
-    if (value) { const d = new Date(value); return { year: d.getFullYear(), month: d.getMonth() } }
+    if (datePart) { const d = new Date(datePart); return { year: d.getFullYear(), month: d.getMonth() } }
     const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() }
   })
   const ref = useRef<HTMLDivElement>(null)
+  const hourRef = useRef<HTMLDivElement>(null)
+  const minRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -1278,31 +1288,75 @@ function DatePicker({ value, onChange, style: wrapStyle }: { value: string; onCh
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  // Scroll time columns to selected values when opening
+  useEffect(() => {
+    if (open && showTime) {
+      setTimeout(() => {
+        hourRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: 'center' })
+        minRef.current?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: 'center' })
+      }, 30)
+    }
+  }, [open, showTime])
+
   const today = new Date(); today.setHours(0,0,0,0)
-  const selectedDate = value ? new Date(value + 'T00:00:00') : null
+  const selectedDate = datePart ? new Date(datePart + 'T00:00:00') : null
 
   const firstDay = new Date(viewDate.year, viewDate.month, 1)
-  const startDow = (firstDay.getDay() + 6) % 7 // Monday=0
+  const startDow = (firstDay.getDay() + 6) % 7
   const daysInMonth = new Date(viewDate.year, viewDate.month + 1, 0).getDate()
+  // Previous month days to fill first row
+  const prevMonthDays = new Date(viewDate.year, viewDate.month, 0).getDate()
 
-  const cells: (number | null)[] = []
-  for (let i = 0; i < startDow; i++) cells.push(null)
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-  while (cells.length % 7 !== 0) cells.push(null)
+  const cells: { day: number; current: boolean }[] = []
+  for (let i = startDow - 1; i >= 0; i--) cells.push({ day: prevMonthDays - i, current: false })
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d, current: true })
+  while (cells.length % 7 !== 0) cells.push({ day: cells.length - startDow - daysInMonth + 1, current: false })
 
   const prevMonth = () => setViewDate(v => v.month === 0 ? { year: v.year - 1, month: 11 } : { year: v.year, month: v.month - 1 })
   const nextMonth = () => setViewDate(v => v.month === 11 ? { year: v.year + 1, month: 0 } : { year: v.year, month: v.month + 1 })
+  const prevYear = () => setViewDate(v => ({ ...v, year: v.year - 1 }))
+  const nextYear = () => setViewDate(v => ({ ...v, year: v.year + 1 }))
+
+  const emit = (d: string, h?: number, m?: number) => {
+    if (!showTime) { onChange(d); return }
+    const hh = String(h ?? selHour).padStart(2, '0')
+    const mm = String(m ?? selMin).padStart(2, '0')
+    onChange(`${d} ${hh}:${mm}`)
+  }
 
   const pick = (day: number) => {
     const m = String(viewDate.month + 1).padStart(2, '0')
     const d = String(day).padStart(2, '0')
-    onChange(`${viewDate.year}-${m}-${d}`)
-    setOpen(false)
+    const dateStr = `${viewDate.year}-${m}-${d}`
+    emit(dateStr)
+    if (!showTime) setOpen(false)
   }
 
-  const displayLabel = value
-    ? new Date(value + 'T00:00:00').toLocaleDateString('da-DK', { day: 'numeric', month: 'short', year: 'numeric' })
-    : 'Vælg dato...'
+  const pickHour = (h: number) => { if (datePart) emit(datePart, h, selMin) }
+  const pickMin = (m: number) => { if (datePart) emit(datePart, selHour, m) }
+
+  const displayLabel = datePart
+    ? (() => {
+        const d = new Date(datePart + 'T00:00:00')
+        const dd = String(d.getDate()).padStart(2, '0')
+        const mm = String(d.getMonth() + 1).padStart(2, '0')
+        const base = `${dd}-${mm}-${d.getFullYear()}`
+        if (showTime && timePart) return `${base} ${timePart}`
+        if (!showTime) return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short', year: 'numeric' })
+        return base
+      })()
+    : showTime ? 'Vælg dato & tid...' : 'Vælg dato...'
+
+  const timeColStyle: React.CSSProperties = {
+    flex: 1, height: 210, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1,
+    scrollbarWidth: 'thin', scrollbarColor: `${C.border} transparent`,
+  }
+  const timeItemStyle = (selected: boolean): React.CSSProperties => ({
+    padding: '5px 0', textAlign: 'center', fontSize: 13, fontWeight: selected ? 700 : 500, cursor: 'pointer',
+    background: selected ? C.blue : 'transparent', color: selected ? '#fff' : C.text,
+    borderRadius: 6, flexShrink: 0, border: 'none', minHeight: 30,
+    transition: 'all 0.1s',
+  })
 
   return (
     <div ref={ref} style={{ position: 'relative', ...wrapStyle }}>
@@ -1322,77 +1376,133 @@ function DatePicker({ value, onChange, style: wrapStyle }: { value: string; onCh
       {open && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, zIndex: 100, marginTop: 4,
-          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 12,
-          width: 260, boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4)', display: 'flex', flexDirection: 'column',
+          width: showTime ? 370 : 260,
         }}>
-          {/* Month navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <button type="button" onClick={prevMonth} style={{ padding: 4, border: 'none', background: 'transparent', color: C.textMuted, cursor: 'pointer' }}>
-              <ChevronLeft style={{ width: 16, height: 16 }} />
-            </button>
-            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
-              {MONTH_NAMES[viewDate.month]} {viewDate.year}
-            </span>
-            <button type="button" onClick={nextMonth} style={{ padding: 4, border: 'none', background: 'transparent', color: C.textMuted, cursor: 'pointer' }}>
-              <ChevronRight style={{ width: 16, height: 16 }} />
-            </button>
-          </div>
+          <div style={{ display: 'flex' }}>
+            {/* Calendar side */}
+            <div style={{ flex: 1, padding: 12 }}>
+              {/* Month/year navigation */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                <div style={{ position: 'relative' }}>
+                  <button type="button" onClick={() => setMonthDropdown(o => !o)} style={{
+                    padding: '3px 8px', border: `1px solid ${C.border}`, background: 'transparent', borderRadius: 6,
+                    color: C.text, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                    {MONTH_NAMES_SHORT[viewDate.month].replace('.', '')} {viewDate.year}
+                    <ChevronDown style={{ width: 10, height: 10, color: C.textMuted }} />
+                  </button>
+                  {monthDropdown && (
+                    <div style={{
+                      position: 'absolute', top: '100%', left: 0, zIndex: 110, marginTop: 2,
+                      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 4,
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.4)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, width: 180,
+                    }}>
+                      {MONTH_NAMES_SHORT.map((m, i) => (
+                        <button key={i} type="button" onClick={() => { setViewDate(v => ({ ...v, month: i })); setMonthDropdown(false) }} style={{
+                          padding: '4px 6px', border: 'none', borderRadius: 4, fontSize: 11, fontWeight: viewDate.month === i ? 700 : 500, cursor: 'pointer',
+                          background: viewDate.month === i ? C.blue : 'transparent', color: viewDate.month === i ? '#fff' : C.text,
+                        }}
+                          onMouseEnter={e => { if (viewDate.month !== i) e.currentTarget.style.background = C.cardHover }}
+                          onMouseLeave={e => { if (viewDate.month !== i) e.currentTarget.style.background = 'transparent' }}>
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  <button type="button" onClick={prevMonth} style={{ padding: 0, border: 'none', background: 'transparent', color: C.textMuted, cursor: 'pointer', lineHeight: 1 }}>
+                    <ChevronUp style={{ width: 14, height: 14 }} />
+                  </button>
+                  <button type="button" onClick={nextMonth} style={{ padding: 0, border: 'none', background: 'transparent', color: C.textMuted, cursor: 'pointer', lineHeight: 1 }}>
+                    <ChevronDown style={{ width: 14, height: 14 }} />
+                  </button>
+                </div>
+              </div>
 
-          {/* Day headers */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
-            {DAY_NAMES.map((d, i) => (
-              <div key={d} style={{
-                textAlign: 'center', fontSize: 10, fontWeight: 700, padding: '2px 0',
-                color: i >= 5 ? C.amber : C.textMuted,
-                textTransform: 'uppercase',
-              }}>{d}</div>
-            ))}
-          </div>
+              {/* Day headers */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
+                {DAY_NAMES.map((d, i) => (
+                  <div key={d} style={{
+                    textAlign: 'center', fontSize: 10, fontWeight: 700, padding: '2px 0',
+                    color: i >= 5 ? C.amber : C.textMuted, textTransform: 'lowercase',
+                  }}>{d.toLowerCase()}</div>
+                ))}
+              </div>
 
-          {/* Day cells */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
-            {cells.map((day, i) => {
-              if (day === null) return <div key={`e${i}`} />
-              const dow = i % 7
-              const isWeekend = dow >= 5
-              const cellDate = new Date(viewDate.year, viewDate.month, day)
-              const isToday = cellDate.getTime() === today.getTime()
-              const isSelected = selectedDate && cellDate.getTime() === selectedDate.getTime()
+              {/* Day cells */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+                {cells.map((cell, i) => {
+                  const dow = i % 7
+                  const isWeekend = dow >= 5
+                  const cellDate = cell.current ? new Date(viewDate.year, viewDate.month, cell.day) : null
+                  const isToday = cellDate ? cellDate.getTime() === today.getTime() : false
+                  const isSelected = cellDate && selectedDate ? cellDate.getTime() === selectedDate.getTime() : false
 
-              return (
-                <button key={day} type="button" onClick={() => pick(day)} style={{
-                  width: 32, height: 32, borderRadius: 8, border: 'none', cursor: 'pointer',
-                  fontSize: 12, fontWeight: isSelected || isToday ? 700 : 500,
-                  background: isSelected ? C.blue : isToday ? C.blue + '20' : isWeekend ? C.amber + '10' : 'transparent',
-                  color: isSelected ? '#fff' : isToday ? C.blue : isWeekend ? C.amber : C.text,
-                  transition: 'all 0.1s',
-                  outline: isToday && !isSelected ? `1px solid ${C.blue}40` : 'none',
-                }}
-                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = isWeekend ? C.amber + '20' : C.cardHover }}
-                  onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = isToday ? C.blue + '20' : isWeekend ? C.amber + '10' : 'transparent' }}>
-                  {day}
-                </button>
-              )
-            })}
-          </div>
+                  return (
+                    <button key={i} type="button"
+                      onClick={() => { if (cell.current) pick(cell.day) }}
+                      style={{
+                        width: 30, height: 30, borderRadius: 8, border: 'none', cursor: cell.current ? 'pointer' : 'default',
+                        fontSize: 12, fontWeight: isSelected || isToday ? 700 : 500,
+                        background: isSelected ? C.blue : isToday ? C.blue + '20' : isWeekend && cell.current ? C.amber + '10' : 'transparent',
+                        color: !cell.current ? C.textMuted + '40' : isSelected ? '#fff' : isToday ? C.blue : isWeekend ? C.amber : C.text,
+                        transition: 'all 0.1s',
+                        outline: isToday && !isSelected ? `1px solid ${C.blue}40` : 'none',
+                      }}
+                      onMouseEnter={e => { if (cell.current && !isSelected) e.currentTarget.style.background = isWeekend ? C.amber + '20' : C.cardHover }}
+                      onMouseLeave={e => { if (cell.current && !isSelected) e.currentTarget.style.background = isToday ? C.blue + '20' : isWeekend ? C.amber + '10' : 'transparent' }}>
+                      {cell.day}
+                    </button>
+                  )
+                })}
+              </div>
 
-          {/* Quick picks */}
-          <div style={{ display: 'flex', gap: 4, marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
-            {[
-              { label: 'I dag', fn: () => { const d = new Date(); return d.toISOString().slice(0, 10) } },
-              { label: 'I morgen', fn: () => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) } },
-              { label: 'Næste uge', fn: () => { const d = new Date(); d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7)); return d.toISOString().slice(0, 10) } },
-            ].map(q => (
-              <button key={q.label} type="button" onClick={() => { onChange(q.fn()); setOpen(false) }} style={{
-                flex: 1, padding: '4px 0', borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                border: `1px solid ${C.border}`, background: 'transparent', color: C.textMuted,
-                transition: 'all 0.15s',
-              }}
-                onMouseEnter={e => { e.currentTarget.style.background = C.cardHover; e.currentTarget.style.color = C.text }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = C.textMuted }}>
-                {q.label}
-              </button>
-            ))}
+              {/* Bottom row: Ryd / I dag */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                <button type="button" onClick={() => { onChange(''); setOpen(false) }} style={{
+                  padding: '3px 10px', border: 'none', background: 'transparent', color: C.red, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                }}>Ryd</button>
+                <button type="button" onClick={() => {
+                  const d = new Date().toISOString().slice(0, 10)
+                  setViewDate({ year: new Date().getFullYear(), month: new Date().getMonth() })
+                  emit(d)
+                  if (!showTime) setOpen(false)
+                }} style={{
+                  padding: '3px 10px', border: 'none', background: 'transparent', color: C.blue, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                }}>I dag</button>
+              </div>
+            </div>
+
+            {/* Time columns */}
+            {showTime && (
+              <div style={{ display: 'flex', gap: 2, padding: '12px 8px 12px 0', borderLeft: `1px solid ${C.border}`, marginTop: 8, marginBottom: 8 }}>
+                {/* Hours */}
+                <div ref={hourRef} style={timeColStyle}>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <button key={h} type="button" data-selected={h === selHour} onClick={() => pickHour(h)}
+                      style={timeItemStyle(h === selHour)}
+                      onMouseEnter={e => { if (h !== selHour) e.currentTarget.style.background = C.cardHover }}
+                      onMouseLeave={e => { if (h !== selHour) e.currentTarget.style.background = 'transparent' }}>
+                      {String(h).padStart(2, '0')}
+                    </button>
+                  ))}
+                </div>
+                {/* Minutes */}
+                <div ref={minRef} style={timeColStyle}>
+                  {Array.from({ length: 60 }, (_, m) => (
+                    <button key={m} type="button" data-selected={m === selMin} onClick={() => pickMin(m)}
+                      style={timeItemStyle(m === selMin)}
+                      onMouseEnter={e => { if (m !== selMin) e.currentTarget.style.background = C.cardHover }}
+                      onMouseLeave={e => { if (m !== selMin) e.currentTarget.style.background = 'transparent' }}>
+                      {String(m).padStart(2, '0')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
