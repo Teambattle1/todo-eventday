@@ -156,9 +156,19 @@ export default function App() {
   void useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('jesper')), [employees])
   void useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('steen')), [employees])
 
-  const thomasTasks = useMemo(() => tasks.filter(t => t.assigned_to === thomasEmp?.id), [tasks, thomasEmp])
-  const mariaTasks = useMemo(() => tasks.filter(t => t.assigned_to === mariaEmp?.id), [tasks, mariaEmp])
-  const crewTasks = useMemo(() => tasks.filter(t => t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id), [tasks, thomasEmp, mariaEmp])
+  // Person views show ALL active tasks assigned to that person, regardless of category (CODE, REPAIR, custom, etc.)
+  const thomasTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to === thomasEmp?.id).sort((a,b) => {
+    const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
+    return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  }), [active, thomasEmp])
+  const mariaTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to === mariaEmp?.id).sort((a,b) => {
+    const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
+    return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  }), [active, mariaEmp])
+  const crewTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id).sort((a,b) => {
+    const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
+    return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  }), [active, thomasEmp, mariaEmp])
   const personSectionCounts = useMemo(() => {
     const c: Record<string, number> = {}
     thomasTasks.forEach(t => { if (t.section_id) c[`thomas:${t.section_id}`] = (c[`thomas:${t.section_id}`] || 0) + 1 })
@@ -1424,7 +1434,15 @@ function TaskCard({ t, emp, onDone, onDel, onClick }: { t:Todo; emp?:Employee; o
 
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontSize:13, fontWeight:600, lineHeight:1.3, color:C.text, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{title}</div>
-        {t.due_date && <div style={{ marginTop:3 }}><DuePill date={t.due_date} /></div>}
+        <div style={{ display:'flex', alignItems:'center', gap:5, flexWrap:'wrap', marginTop:3 }}>
+          {t.due_date && <DuePill date={t.due_date} />}
+          {t.category && t.category !== 'null' && !t.category.startsWith('custom:') && (
+            <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:(CAT_COLORS[t.category] || C.blue)+'18', color:CAT_COLORS[t.category] || C.blue, textTransform:'uppercase', letterSpacing:'0.04em' }}>{t.category}</span>
+          )}
+          {t.category?.startsWith('custom:') && (
+            <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:C.purple+'18', color:C.purple, letterSpacing:'0.04em' }}>liste</span>
+          )}
+        </div>
       </div>
 
       {emp && <Avatar name={emp.navn} id={emp.id} sz={22} />}
