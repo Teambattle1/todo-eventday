@@ -29,9 +29,13 @@ export function useTodos() {
         assigned_to: todo.assigned_to || null,
         priority: todo.priority || 'Normal',
         due_date: todo.due_date || null,
+        alarm_at: todo.alarm_at || null,
         category: todo.category || null,
         section_id: todo.section_id || null,
         location: todo.location || null,
+        lat: todo.lat || null,
+        lon: todo.lon || null,
+        geo_address: todo.geo_address || null,
         resolved: false,
         is_error: false,
       })

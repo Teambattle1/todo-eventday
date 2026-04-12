@@ -4,7 +4,7 @@ import { decodeHtmlEntities, getPriorityColor, isOverdue, parseDescription } fro
 import PriorityBadge from './PriorityBadge'
 import AvatarInitials from './AvatarInitials'
 import DueDateBadge from './DueDateBadge'
-import { MapPin, AlertTriangle } from 'lucide-react'
+import { MapPin, AlertTriangle, Bell } from 'lucide-react'
 
 interface Props {
   todo: Todo
@@ -54,6 +54,12 @@ export default function TodoCard({ todo, employee }: Props) {
         <div className="flex items-center gap-2 flex-wrap">
           <PriorityBadge priority={todo.priority} />
           <DueDateBadge dueDate={todo.due_date} />
+          {todo.alarm_at && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-amber-400">
+              <Bell className="w-3 h-3" />
+              {new Date(todo.alarm_at).toLocaleString('da-DK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
           {(todo.geo_address || todo.location) && (
             <span className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
               <MapPin className="w-3 h-3" />

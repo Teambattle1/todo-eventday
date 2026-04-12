@@ -20,7 +20,7 @@ import {
   Plus, Check, Trash2, ChevronDown, ChevronRight, AlertTriangle,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
   Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
-  Mic, MicOff, Keyboard,
+  Mic, MicOff, Keyboard, Bell,
 } from 'lucide-react'
 
 /* ━━━ Color Tokens ━━━ */
@@ -1618,6 +1618,7 @@ function TaskForm({ employees, onDone, onCancel, defaultAssign, locations, thoma
   const [pri, sP] = useState('Normal')
   const [cDate, sCD] = useState('')
   const [assign, sA] = useState(defaultAssign || '')
+  const [alarm, sAlarm] = useState('')
   const [geoLat, sGeoLat] = useState<number | null>(null)
   const [geoLon, sGeoLon] = useState<number | null>(null)
   const [geoAddr, sGeoAddr] = useState('')
@@ -1637,7 +1638,7 @@ function TaskForm({ employees, onDone, onCancel, defaultAssign, locations, thoma
     e.preventDefault()
     if (!title.trim() || busy) return
     sB(true)
-    await onDone({ title: title.trim(), description: desc.trim() || null, priority: pri, due_date: cDate || null, assigned_to: assign || null, lat: geoLat, lon: geoLon, geo_address: geoAddr || null, images: images.length > 0 ? images : null })
+    await onDone({ title: title.trim(), description: desc.trim() || null, priority: pri, due_date: cDate || null, alarm_at: alarm ? new Date(alarm).toISOString() : null, assigned_to: assign || null, lat: geoLat, lon: geoLon, geo_address: geoAddr || null, images: images.length > 0 ? images : null })
     sB(false)
   }
 
@@ -1662,8 +1663,15 @@ function TaskForm({ employees, onDone, onCancel, defaultAssign, locations, thoma
       </div>
 
       {/* ── SECTION: Tid / Dato ── */}
-      <SectionLabel icon={<Calendar style={{ width:12, height:12 }} />} label="Tid / Dato" />
+      <SectionLabel icon={<Calendar style={{ width:12, height:12 }} />} label="Deadline (Udføres før)" />
       <DatePicker value={cDate} onChange={sCD} />
+
+      {/* ── SECTION: Påmindelse ── */}
+      <SectionLabel icon={<Bell style={{ width:12, height:12 }} />} label="Påmindelse" />
+      <input type="datetime-local" value={alarm} onChange={e => sAlarm(e.target.value)}
+        style={{ ...inputStyle, fontSize:12, color: alarm ? C.text : C.textMuted }}
+        onFocus={inputFocus} onBlur={inputBlur} />
+      <span style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>Hvornår skal der sendes påmindelse?</span>
 
       {/* ── SECTION: Sted ── */}
       <SectionLabel icon={<MapPin style={{ width:12, height:12 }} />} label="Sted" />
