@@ -99,6 +99,7 @@ export default function App() {
   const [showIdeas, setShowIdeas] = useState(false)
   const [, setMobileTab] = useState<number>(0)
   const [quickCreate, setQuickCreate] = useState(false)
+  const [quickCall, setQuickCall] = useState(false)
   const [currentUser, setCurrentUser] = useState<'thomas' | 'maria'>(() => (localStorage.getItem('todo-user') as any) || 'thomas')
 
   // Keyboard shortcut: Cmd+K (Mac) / Ctrl+K (PC) to quick-create, or plain N when not typing
@@ -465,6 +466,7 @@ export default function App() {
           gpsActive={gpsActive}
           connected={connected}
           onQuickCreate={() => setQuickCreate(true)}
+          onQuickCall={() => setQuickCall(true)}
           onShowPrintTransport={() => setShowPrintTransport(true)}
           customLists={customLists}
           customListCounts={Object.fromEntries(customLists.map(l => [l.id, customListTasks.get(l.id)?.length || 0]))}
@@ -1004,6 +1006,20 @@ export default function App() {
             setQuickCreate(false)
             // On mobile, switch to the correct tab
             if (isMobile) setMobileTab(currentUser === 'thomas' ? 0 : 1)
+          }}
+        />
+      )}
+
+      {/* ── Quick Call Modal ── */}
+      {quickCall && (
+        <QuickCallModal
+          employees={employees}
+          thomasId={thomasEmp?.id}
+          mariaId={mariaEmp?.id}
+          onClose={() => setQuickCall(false)}
+          onSubmit={async (d) => {
+            await calls.addCall(d)
+            setQuickCall(false)
           }}
         />
       )}
@@ -2487,6 +2503,93 @@ function QuickCreateModal({ currentUser, onSwitchUser, thomasEmp, mariaEmp, onCl
   )
 }
 
+/* ━━━ Quick Call Modal ━━━ */
+function QuickCallModal({ employees, thomasId, mariaId, onClose, onSubmit }: {
+  employees: Map<string, Employee>; thomasId?: string; mariaId?: string
+  onClose: () => void
+  onSubmit: (d: { navn: string; nummer: string; firma?: string; note?: string; assigned_to?: string; urgent?: boolean; due_date?: string }) => Promise<any>
+}) {
+  const [navn, sN] = useState('')
+  const [nummer, sNu] = useState('')
+  const [firma, sF] = useState('')
+  const [note, sNo] = useState('')
+  const [assign, sA] = useState('')
+  const [urgent, sUrg] = useState(false)
+  const [busy, sB] = useState(false)
+  const ref = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { ref.current?.focus() }, [])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const thomasName = thomasId ? (employees.get(thomasId)?.navn?.split(' ')[0] || 'Thomas') : 'Thomas'
+  const mariaName = mariaId ? (employees.get(mariaId)?.navn?.split(' ')[0] || 'Maria') : 'Maria'
+
+  const submit = async () => {
+    if (!navn.trim() || !nummer.trim() || busy) return
+    sB(true)
+    await onSubmit({ navn: navn.trim(), nummer: nummer.trim(), firma: firma.trim() || undefined, note: note.trim() || undefined, assigned_to: assign || undefined, urgent })
+    sB(false)
+  }
+
+  return (
+    <div onClick={onClose} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000, padding:16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background:C.surface, borderRadius:16, border:`1px solid ${C.amber}40`, width:'100%', maxWidth:420, maxHeight:'90vh', overflow:'auto' }}>
+        {/* Header */}
+        <div style={{ padding:'16px 20px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <Phone style={{ width:18, height:18, color:C.amber }} />
+            <span style={{ fontSize:15, fontWeight:700, color:C.text }}>QUICKCALL</span>
+          </div>
+          <button onClick={onClose} style={{ background:'transparent', border:'none', cursor:'pointer', color:C.textMuted, padding:4 }}>
+            <X style={{ width:18, height:18 }} />
+          </button>
+        </div>
+
+        <div style={{ padding:20, display:'flex', flexDirection:'column', gap:10 }}>
+          <input ref={ref} placeholder="Navn..." value={navn} onChange={e => sN(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+            style={{ ...inputStyle, fontSize:15, padding:'12px 14px' }} onFocus={inputFocus} onBlur={inputBlur} />
+          <input placeholder="Telefonnummer..." value={nummer} onChange={e => sNu(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+            style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} type="tel" />
+          <input placeholder="Firma (valgfrit)..." value={firma} onChange={e => sF(e.target.value)}
+            style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
+          <textarea placeholder="Note (valgfrit)..." value={note} onChange={e => sNo(e.target.value)} rows={2}
+            style={{ ...inputStyle, resize:'vertical', minHeight:40, fontFamily:'inherit' }}
+            onFocus={e => e.currentTarget.style.borderColor = C.amber}
+            onBlur={e => e.currentTarget.style.borderColor = C.border} />
+
+          {/* Urgent + Assign */}
+          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <button type="button" onClick={() => sUrg(!urgent)} style={{
+              padding:'4px 10px', borderRadius:6, fontSize:11, fontWeight:600, cursor:'pointer', border:`1px solid ${C.red}40`,
+              background: urgent ? C.red+'20' : 'transparent', color: urgent ? C.red : C.textMuted, transition:'all 0.15s',
+            }}>HASTER</button>
+            <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
+              {thomasId && <AssignBtn name="T" label={thomasName} color={C.green} active={assign===thomasId} onClick={() => sA(assign===thomasId ? '' : thomasId)} />}
+              {mariaId && <AssignBtn name="M" label={mariaName} color={C.pink} active={assign===mariaId} onClick={() => sA(assign===mariaId ? '' : mariaId)} />}
+            </div>
+          </div>
+
+          {/* Submit */}
+          <button onClick={submit} disabled={!navn.trim() || !nummer.trim() || busy} style={{
+            padding:'12px 0', borderRadius:10, fontSize:13, fontWeight:700,
+            background: C.amber, color:'#fff', border:'none', cursor:'pointer',
+            opacity: (!navn.trim() || !nummer.trim() || busy) ? 0.35 : 1,
+            textTransform:'uppercase', letterSpacing:'0.04em', transition:'opacity 0.15s', marginTop:4,
+          }}>
+            {busy ? 'OPRETTER...' : 'TILFØJ TIL RINGES'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ━━━ Edit Shopping Modal ━━━ */
 function EditShoppingModal({ item, employees, locations, thomasId, mariaId, onClose, onSave, onDelete, onConvertToTask }: {
   item: ShoppingItem; employees: Map<string, Employee>; locations: ReturnType<typeof useLocations>; thomasId?: string; mariaId?: string
@@ -2645,6 +2748,7 @@ function PhoneCallCard({ call, done, onCheck, onDel, onClick, emp }: { call:Phon
           </a>
           {call.due_date && <DuePill date={call.due_date} />}
           {call.note && <span style={{ fontSize:10, color:C.textMuted }}>{call.note.length > 30 ? call.note.slice(0,30)+'...' : call.note}</span>}
+          <span style={{ fontSize:9, color:C.textMuted, opacity:0.5, marginLeft:'auto', whiteSpace:'nowrap' }}>{new Date(call.created_at).toLocaleDateString('da-DK',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
         </div>
       </div>
       {emp && <Avatar name={emp.navn} id={emp.id} sz={22} />}
@@ -3216,7 +3320,7 @@ type ViewKeyLocal = BuiltInViewKey | `custom:${string}` | string
 function Sidebar({
   open, isMobile, onClose, currentView, setCurrentView, counts, dueCounts,
   thomasName, mariaName, thomasId, mariaId, gpsActive, connected,
-  onQuickCreate, onShowPrintTransport, onDropTodo,
+  onQuickCreate, onQuickCall, onShowPrintTransport, onDropTodo,
   customLists, customListCounts, customListDueCounts, onCreateList, onDeleteCustomList,
   sectionsByList, sectionCounts,
 }: {
@@ -3239,6 +3343,7 @@ function Sidebar({
   gpsActive: boolean
   connected: boolean
   onQuickCreate: () => void
+  onQuickCall: () => void
   onShowPrintTransport: () => void
   onDropTodo: (view: ViewKeyLocal, id: string) => void | Promise<any>
   sectionsByList?: Record<string, { id: string; name: string; color?: string | null }[]>
@@ -3253,8 +3358,16 @@ function Sidebar({
 
   return (
     <aside style={wrapperStyle}>
-      {/* Top: quick-create button */}
-      <div style={{ padding:'16px 16px 8px', borderBottom:`1px solid ${C.border}` }}>
+      {/* Top: quick-create buttons */}
+      <div style={{ padding:'16px 16px 8px', borderBottom:`1px solid ${C.border}`, display:'flex', flexDirection:'column', gap:6 }}>
+        <button onClick={onQuickCall} style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, border:`1px solid ${C.amber}40`, background:'transparent', color:C.amber, fontSize:12, fontWeight:700, cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em', transition:'all 0.15s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = C.amber+'12'; e.currentTarget.style.borderColor = C.amber+'80' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = C.amber+'40' }}>
+          <div style={{ width:22, height:22, borderRadius:11, background:C.amber, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <Phone style={{ width:12, height:12, color:'#fff' }} />
+          </div>
+          Quickcall
+        </button>
         <button onClick={onQuickCreate} style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 12px', borderRadius:8, border:`1px solid ${C.red}40`, background:'transparent', color:C.red, fontSize:12, fontWeight:700, cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>
           <div style={{ width:22, height:22, borderRadius:11, background:C.red, display:'flex', alignItems:'center', justifyContent:'center' }}>
             <Plus style={{ width:14, height:14, color:'#fff' }} />
