@@ -68,6 +68,14 @@ export interface TransportItem {
   updated_at: string
 }
 
+export interface Skilt {
+  id: string
+  text: string
+  color: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface PhoneCall {
   id: string
   navn: string

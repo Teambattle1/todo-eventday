@@ -5,12 +5,13 @@ import { useEmployees } from './hooks/useEmployees'
 import { useShopping } from './hooks/useShopping'
 import { usePhoneCalls } from './hooks/usePhoneCalls'
 import { useTransport } from './hooks/useTransport'
+import { useSkilte } from './hooks/useSkilte'
 import { useLists } from './hooks/useLists'
 import { useGeofence } from './hooks/useGeofence'
 import { useWakeLock } from './hooks/useWakeLock'
 import { supabase } from './lib/supabase'
 import { useLocations } from './hooks/useLocations'
-import type { Todo, Employee, ShoppingItem, PhoneCall, TransportItem } from './lib/types'
+import type { Todo, Employee, ShoppingItem, PhoneCall, TransportItem, Skilt } from './lib/types'
 import {
   getPriorityColor, getPriorityOrder, getPriorityLabel,
   isIdeaCategory, getCategoryLabel, parseDescription,
@@ -67,6 +68,7 @@ export default function App() {
   const shop = useShopping()
   const calls = usePhoneCalls()
   const transport = useTransport()
+  const skilte = useSkilte()
   const locations = useLocations()
   const { nearbyItems, watching: gpsActive } = useGeofence(todos, shop.items)
   useWakeLock()
@@ -442,6 +444,7 @@ export default function App() {
             maria: mariaTasks.length,
             crew: crewTasks.length,
             phone: activeCalls.length,
+            skilte: skilte.items.length,
             code: codeTasks.length,
             repair: repairTasks.length,
             transport: activeTransport.length,
@@ -507,7 +510,7 @@ export default function App() {
             counts={{
               today: todayTasks.length, week: weekTasks.length, upcoming: upcomingTasks.length, inbox: unassignedTasks.length,
               thomas: thomasTasks.length, maria: mariaTasks.length, crew: crewTasks.length,
-              phone: activeCalls.length, code: codeTasks.length, repair: repairTasks.length,
+              phone: activeCalls.length, skilte: skilte.items.length, code: codeTasks.length, repair: repairTasks.length,
               transport: activeTransport.length, shop: pendShop.length,
               ideas: ideaGroups.reduce((s,[,v])=>s+v.length,0),
             }}
@@ -716,6 +719,11 @@ export default function App() {
                     </Collapse>
                   </div>
                 )}
+              </>)}
+
+              {/* Skilte mangler */}
+              {currentView === 'skilte' && (<>
+                <SkilteView skilte={skilte} />
               </>)}
 
               {/* Code */}
@@ -2724,6 +2732,85 @@ function EditShoppingModal({ item, employees, locations, thomasId, mariaId, onCl
 }
 
 /* ━━━ Phone Call Card ━━━ */
+/* ━━━ Skilte View ━━━ */
+const SKILT_COLORS = [
+  { key:'hvid', label:'Hvid', hex:'#ffffff', border:true },
+  { key:'blå', label:'Blå', hex:'#3b82f6' },
+  { key:'gul', label:'Gul', hex:'#eab308' },
+  { key:'rød', label:'Rød', hex:'#ef4444' },
+  { key:'orange', label:'Orange', hex:'#f97316' },
+  { key:'grøn', label:'Grøn', hex:'#22c55e' },
+  { key:'lilla', label:'Lilla', hex:'#a855f7' },
+  { key:'sort', label:'Sort', hex:'#171717', border:true },
+  { key:'pink', label:'Pink', hex:'#ec4899' },
+  { key:'grå', label:'Grå', hex:'#6b7280' },
+] as const
+
+function skiltHex(key: string|null) { return SKILT_COLORS.find(c => c.key === key)?.hex || '#6b7280' }
+function skiltBorder(key: string|null) { return SKILT_COLORS.find(c => c.key === key)?.border || false }
+
+function SkilteView({ skilte }: { skilte: ReturnType<typeof useSkilte> }) {
+  const [adding, setAdding] = useState(false)
+  const [text, setText] = useState('')
+  const [color, setColor] = useState<string|null>(null)
+  const [busy, setBusy] = useState(false)
+  const ref = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (adding) ref.current?.focus() }, [adding])
+
+  const submit = async () => {
+    if (!text.trim() || busy) return
+    setBusy(true)
+    await skilte.addSkilt({ text: text.trim(), color: color || undefined })
+    setText(''); setColor(null); setBusy(false); setAdding(false)
+  }
+
+  return (
+    <>
+      {adding ? (
+        <div style={{ background:C.card, borderRadius:10, border:`1px solid #f9731630`, padding:16, marginBottom:10, display:'flex', flexDirection:'column', gap:10 }}>
+          <input ref={ref} placeholder="Skilt tekst..." value={text} onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') setAdding(false) }}
+            style={inputStyle} onFocus={inputFocus} onBlur={inputBlur} />
+          <div style={{ display:'flex', gap:5, flexWrap:'wrap', alignItems:'center' }}>
+            <span style={{ fontSize:10, color:C.textMuted, marginRight:4 }}>Farve:</span>
+            {SKILT_COLORS.map(c => (
+              <button key={c.key} type="button" onClick={() => setColor(color === c.key ? null : c.key)} style={{
+                width:22, height:22, borderRadius:11, background:c.hex, border: color === c.key ? '2px solid #f97316' : c.border ? '1px solid #666' : '1px solid transparent',
+                cursor:'pointer', transition:'all 0.15s', transform: color === c.key ? 'scale(1.15)' : 'scale(1)',
+              }} title={c.label} />
+            ))}
+          </div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={submit} disabled={!text.trim() || busy} style={{
+              padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:700, background:'#f97316', color:'#fff',
+              border:'none', cursor:'pointer', opacity: (!text.trim() || busy) ? 0.35 : 1, textTransform:'uppercase',
+            }}>{busy ? 'Opretter...' : 'Tilføj skilt'}</button>
+            <button onClick={() => setAdding(false)} style={{ padding:'8px 12px', borderRadius:8, fontSize:12, background:'transparent', border:`1px solid ${C.border}`, color:C.textMuted, cursor:'pointer' }}>Annuller</button>
+          </div>
+        </div>
+      ) : (
+        <AddRow label="Tilføj skilt" onClick={() => setAdding(true)} />
+      )}
+      {skilte.items.map(s => (
+        <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:8, background:C.card, border:`1px solid ${C.border}`, marginBottom:6, transition:'all 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.background = C.cardHover}
+          onMouseLeave={e => e.currentTarget.style.background = C.card}>
+          <div style={{ width:16, height:16, borderRadius:8, background:skiltHex(s.color), border: skiltBorder(s.color) ? '1px solid #666' : 'none', flexShrink:0 }} />
+          <span style={{ flex:1, fontSize:13, fontWeight:600, color:C.text }}>{s.text}</span>
+          <span style={{ fontSize:9, color:C.textMuted, opacity:0.5 }}>{new Date(s.created_at).toLocaleDateString('da-DK',{day:'numeric',month:'short'})}</span>
+          <button onClick={() => skilte.deleteSkilt(s.id)} style={{ padding:2, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.25, transition:'all 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.opacity='1'; e.currentTarget.style.color=C.red }}
+            onMouseLeave={e => { e.currentTarget.style.opacity='0.25'; e.currentTarget.style.color=C.textMuted }}>
+            <Trash2 style={{ width:11, height:11 }} />
+          </button>
+        </div>
+      ))}
+      {skilte.items.length === 0 && !adding && <Empty text="Ingen skilte mangler — synkroniseret med FLOW" />}
+    </>
+  )
+}
+
 function PhoneCallCard({ call, done, onCheck, onDel, onClick, emp }: { call:PhoneCall; done?:boolean; onCheck:()=>void; onDel:()=>void; onClick?:()=>void; emp?:Employee }) {
   const borderColor = done ? C.border : call.urgent ? C.red+'40' : C.amber+'25'
   const bg = done ? 'transparent' : call.urgent ? C.red+'06' : C.card
@@ -3314,7 +3401,7 @@ function PersonalViewModal({ empId, empName, color, tasks, shopItems, phoneCalls
 
 /* ━━━ Landing Overlay ━━━ */
 /* ━━━ Sidebar ━━━ */
-type BuiltInViewKey = 'today' | 'week' | 'upcoming' | 'inbox' | 'thomas' | 'maria' | 'crew' | 'phone' | 'code' | 'repair' | 'transport' | 'shop' | 'ideas'
+type BuiltInViewKey = 'today' | 'week' | 'upcoming' | 'inbox' | 'thomas' | 'maria' | 'crew' | 'phone' | 'code' | 'repair' | 'transport' | 'shop' | 'ideas' | 'skilte'
 type ViewKeyLocal = BuiltInViewKey | `custom:${string}` | string
 
 function Sidebar({
@@ -3422,6 +3509,7 @@ function Sidebar({
         <SidebarItem dotColor={C.amber} label="Repareres" count={counts.repair} active={currentView==='repair'} color={C.amber} highlight={(dueCounts.repair || 0) > 0} onClick={() => setCurrentView('repair')} onDropTodo={id => onDropTodo('repair', id)} />
         <SidebarItem dotColor={C.cyan} label="Øst / Vest" count={counts.transport} active={currentView==='transport'} color={C.cyan} onClick={() => setCurrentView('transport')} />
         <SidebarItem dotColor={C.green} label="Indkøb" count={counts.shop} active={currentView==='shop'} color={C.green} highlight={(dueCounts.shop || 0) > 0} onClick={() => setCurrentView('shop')} />
+        <SidebarItem dotColor={'#f97316'} label="Skilte mangler" count={counts.skilte} active={currentView==='skilte'} color={'#f97316'} onClick={() => setCurrentView('skilte')} />
 
         {/* Custom lists */}
         {customLists && customLists.length > 0 && customLists.map(list => (
@@ -3562,6 +3650,7 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
     maria: `TODO ${mariaName}`,
     crew: 'Crew',
     phone: 'Ringes til',
+    skilte: 'Skilte mangler',
     code: 'Code',
     repair: 'Repareres',
     transport: 'Øst / Vest',
