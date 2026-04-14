@@ -239,6 +239,8 @@ export default function App() {
 
   // Due tasks popup - only shown when user clicks a specific person from landing
   const [duePopupFor, setDuePopupFor] = useState<'thomas' | 'maria' | 'crew' | null>(null)
+  // Snapshot of todo IDs captured when popup opens — new todos created after won't appear
+  const [popupSnapshot, setPopupSnapshot] = useState<Set<string> | null>(null)
   const todayStr = new Date().toISOString().slice(0,10)
 
   // Helper: count of tasks that are overdue or due today in a list
@@ -324,8 +326,10 @@ export default function App() {
     if (duePopupFor === 'crew') return !!t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id
     return false
   }
-  const popupOverdue = duePopupFor ? overdue.filter(popupFilter) : []
-  const popupDueToday = duePopupFor ? dueTodayTasks.filter(popupFilter) : []
+  // Only include tasks in the popup that existed when it was first opened
+  const inSnapshot = (t: Todo) => popupSnapshot === null || popupSnapshot.has(t.id)
+  const popupOverdue = duePopupFor ? overdue.filter(t => popupFilter(t) && inSnapshot(t)) : []
+  const popupDueToday = duePopupFor ? dueTodayTasks.filter(t => popupFilter(t) && inSnapshot(t)) : []
   const showDuePopup = !!duePopupFor && !loading && (popupOverdue.length > 0 || popupDueToday.length > 0)
 
   if (loading) return (
@@ -376,7 +380,7 @@ export default function App() {
                 </div>
               )}
 
-              <button onClick={() => setDuePopupFor(null)} style={{ width:'100%', padding:'10px 20px', borderRadius:8, fontSize:12, fontWeight:700, background:C.blue, color:'#fff', border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>
+              <button onClick={() => { setDuePopupFor(null); setPopupSnapshot(null) }} style={{ width:'100%', padding:'10px 20px', borderRadius:8, fontSize:12, fontWeight:700, background:C.blue, color:'#fff', border:'none', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em' }}>
                 OK, FORSTÅET
               </button>
             </div>
@@ -1191,6 +1195,11 @@ export default function App() {
           const target = viewMap[idx] || 'today'
           setCurrentView(target)
           // Open due-popup only when a person is selected (Thomas/Maria/Crew)
+          // Snapshot current due todo IDs so new todos created after won't appear in the popup
+          if (idx === 0 || idx === 1 || idx === 2) {
+            const dueIds = new Set<string>([...overdue, ...dueTodayTasks].map(t => t.id))
+            setPopupSnapshot(dueIds)
+          }
           if (idx === 0) setDuePopupFor('thomas')
           else if (idx === 1) setDuePopupFor('maria')
           else if (idx === 2) setDuePopupFor('crew')
