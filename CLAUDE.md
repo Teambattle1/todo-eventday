@@ -9,7 +9,7 @@
 ## Key conventions
 - All UI in Danish (da-DK locale)
 - Single-file architecture: most components live in `src/App.tsx`
-- Hooks per data domain: `useTodos`, `usePhoneCalls`, `useShopping`, `useTransport`, `useSkilte`, `useLists`
+- Hooks per data domain: `useTodos`, `usePhoneCalls`, `useShopping`, `useTransport`, `useSkilte`, `useLists`, `useSessionJobs`
 - Inline styles using color constants from `const C = {...}` at top of App.tsx
 - Realtime subscriptions on all Supabase tables via `postgres_changes`
 - Dark theme only, no light mode
@@ -18,10 +18,11 @@
 
 ## Shared database tables
 - `skilte` table is shared between TODO and FLOW apps (synced view)
+- `task_jobs` table is shared with FLOW — used by Sessions view (read-only, 99 columns)
 - All other tables (`todos`, `phone_calls`, `todo_shopping`, `transport_items`, `custom_lists`, `list_sections`) are TODO-specific
 
 ## Active patterns
-- Built-in views: today, week, upcoming, inbox, thomas, maria, crew, phone, skilte, code, repair, transport, shop, ideas
+- Built-in views: today, week, upcoming, inbox, thomas, maria, crew, phone, skilte, code, repair, transport, shop, ideas, sessions
 - Custom lists stored in `custom_lists` table, items are `todos` with `category = "custom:{list_id}"`
 - View state managed via `nuqs` (URL query params)
 - QuickCreate modal (Ctrl+N) for fast task creation
@@ -32,6 +33,8 @@
 - Old "SKILTE MANGLER" custom list may still exist alongside the new built-in `skilte` view — user should delete the custom list manually
 
 ## Recent decisions
+- Sessions view reads from `task_jobs` table (shared with FLOW), todos stored in `todos` table with `category = "session:{job_id}"`
+- Sessions view groups jobs by ISO week, auto-collapses past weeks, search by client/job-ID/location/date
 - Skilte mangler view reads directly from `skilte` table (shared with FLOW) instead of using custom list todos
 - PhoneCallCard displays `created_at` timestamp
 - QuickCall button added to sidebar above Tilføj Opgave

@@ -6,12 +6,13 @@ import { useShopping } from './hooks/useShopping'
 import { usePhoneCalls } from './hooks/usePhoneCalls'
 import { useTransport } from './hooks/useTransport'
 import { useSkilte } from './hooks/useSkilte'
+import { useSessionJobs } from './hooks/useSessionJobs'
 import { useLists } from './hooks/useLists'
 import { useGeofence } from './hooks/useGeofence'
 import { useWakeLock } from './hooks/useWakeLock'
 import { supabase } from './lib/supabase'
 import { useLocations } from './hooks/useLocations'
-import type { Todo, Employee, ShoppingItem, PhoneCall, TransportItem, Skilt } from './lib/types'
+import type { Todo, Employee, ShoppingItem, PhoneCall, TransportItem, Skilt, SessionJob } from './lib/types'
 import {
   getPriorityColor, getPriorityOrder, getPriorityLabel,
   isIdeaCategory, getCategoryLabel, parseDescription,
@@ -21,7 +22,7 @@ import {
   Plus, Check, Trash2, ChevronDown, ChevronUp, ChevronRight, AlertTriangle,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
   Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
-  Mic, MicOff, Keyboard, Bell,
+  Mic, MicOff, Keyboard, Bell, Search, Users, ClipboardList,
 } from 'lucide-react'
 
 /* ━━━ Color Tokens ━━━ */
@@ -69,6 +70,7 @@ export default function App() {
   const calls = usePhoneCalls()
   const transport = useTransport()
   const skilte = useSkilte()
+  const sessionJobs = useSessionJobs()
   const locations = useLocations()
   const { nearbyItems, watching: gpsActive } = useGeofence(todos, shop.items)
   useWakeLock()
@@ -450,6 +452,7 @@ export default function App() {
             transport: activeTransport.length,
             shop: pendShop.length,
             ideas: ideaGroups.reduce((s,[,v])=>s+v.length,0),
+            sessions: sessionJobs.items.length,
           }}
           dueCounts={{
             today: todayTasks.length,
@@ -513,6 +516,7 @@ export default function App() {
               phone: activeCalls.length, skilte: skilte.items.length, code: codeTasks.length, repair: repairTasks.length,
               transport: activeTransport.length, shop: pendShop.length,
               ideas: ideaGroups.reduce((s,[,v])=>s+v.length,0),
+              sessions: sessionJobs.items.length,
             }}
             thomasName={firstName(thomasEmp, 'Thomas')}
             mariaName={firstName(mariaEmp, 'Maria')}
@@ -854,6 +858,19 @@ export default function App() {
                   </>
                 )
               })()}
+
+              {/* Sessions */}
+              {currentView === 'sessions' && (
+                <SessionsView
+                  sessions={sessionJobs.items}
+                  loading={sessionJobs.loading}
+                  todos={todos}
+                  employees={employees}
+                  addTodo={addTodo}
+                  updateTodo={updateTodo}
+                  deleteTodo={deleteTodo}
+                />
+              )}
 
             </div>
           </div>
@@ -3399,9 +3416,396 @@ function PersonalViewModal({ empId, empName, color, tasks, shopItems, phoneCalls
   )
 }
 
+/* ━━━ Sessions View ━━━ */
+function getWeekMonday(d: Date): Date {
+  const day = d.getDay() || 7
+  const mon = new Date(d)
+  mon.setDate(d.getDate() - day + 1)
+  mon.setHours(0,0,0,0)
+  return mon
+}
+
+function formatDateShort(d: Date): string {
+  return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' })
+}
+
+function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo, deleteTodo }: {
+  sessions: SessionJob[]
+  loading: boolean
+  todos: Todo[]
+  employees: Map<string, Employee>
+  addTodo: (t: Partial<Todo>) => Promise<any>
+  updateTodo: (id: string, u: Partial<Todo>) => Promise<any>
+  deleteTodo: (id: string) => Promise<any>
+}) {
+  const [search, setSearch] = useState('')
+  const [expandedSession, setExpandedSession] = useState<string | null>(null)
+  const [addingTodoFor, setAddingTodoFor] = useState<string | null>(null)
+  const [newTodoTitle, setNewTodoTitle] = useState('')
+  const [collapsedWeeks, setCollapsedWeeks] = useState<Set<string>>(() => new Set())
+  const [initializedWeeks, setInitializedWeeks] = useState(false)
+
+  // Count todos per session
+  const sessionTodoCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    const sessionTodos = todos.filter(t => t.category?.startsWith('session:') && !t.resolved)
+    sessionTodos.forEach(t => {
+      const jobId = t.category!.slice(8)
+      m.set(jobId, (m.get(jobId) || 0) + 1)
+    })
+    return m
+  }, [todos])
+
+  // Filter sessions by search
+  const filtered = useMemo(() => {
+    if (!search.trim()) return sessions
+    const q = search.toLowerCase()
+    return sessions.filter(s =>
+      (s.client_name && s.client_name.toLowerCase().includes(q)) ||
+      (s.short_code && s.short_code.toLowerCase().includes(q)) ||
+      (s.location_name && s.location_name.toLowerCase().includes(q)) ||
+      (s.location_city && s.location_city.toLowerCase().includes(q)) ||
+      (s.event_date && new Date(s.event_date).toLocaleDateString('da-DK').includes(q))
+    )
+  }, [sessions, search])
+
+  // Group by week
+  const weekGroups = useMemo(() => {
+    const groups = new Map<string, { label: string; monday: Date; sessions: SessionJob[] }>()
+    const noDate: SessionJob[] = []
+
+    filtered.forEach(s => {
+      if (!s.event_date) { noDate.push(s); return }
+      const d = new Date(s.event_date)
+      const mon = getWeekMonday(d)
+      const weekNum = getIsoWeek(d)
+      const year = d.getFullYear()
+      const key = `${year}-W${String(weekNum).padStart(2,'0')}`
+      if (!groups.has(key)) {
+        const sun = new Date(mon)
+        sun.setDate(mon.getDate() + 6)
+        groups.set(key, {
+          label: `Uge ${weekNum} — ${formatDateShort(mon)} – ${formatDateShort(sun)} ${year}`,
+          monday: mon,
+          sessions: [],
+        })
+      }
+      groups.get(key)!.sessions.push(s)
+    })
+
+    // Sort sessions within each week by event_date ascending
+    groups.forEach(g => g.sessions.sort((a, b) => new Date(a.event_date!).getTime() - new Date(b.event_date!).getTime()))
+
+    // Sort weeks descending (newest first) so current week is near top
+    const sorted = [...groups.entries()].sort((a, b) => b[1].monday.getTime() - a[1].monday.getTime())
+
+    return { weeks: sorted, noDate }
+  }, [filtered])
+
+  // Auto-collapse past weeks on first load
+  const currentMonday = getWeekMonday(new Date())
+  useEffect(() => {
+    if (initializedWeeks || weekGroups.weeks.length === 0) return
+    const past = new Set<string>()
+    weekGroups.weeks.forEach(([key, g]) => {
+      if (g.monday.getTime() < currentMonday.getTime()) past.add(key)
+    })
+    setCollapsedWeeks(past)
+    setInitializedWeeks(true)
+  }, [weekGroups.weeks, initializedWeeks, currentMonday])
+
+  const toggleWeek = (key: string) => {
+    setCollapsedWeeks(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
+  // Get todos for a specific session
+  const getSessionTodos = (jobId: string) =>
+    todos.filter(t => t.category === `session:${jobId}`).sort((a, b) => {
+      if (a.resolved !== b.resolved) return a.resolved ? 1 : -1
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+
+  const handleAddSessionTodo = async (jobId: string) => {
+    if (!newTodoTitle.trim()) return
+    await addTodo({ title: newTodoTitle.trim(), category: `session:${jobId}`, priority: 'Normal' })
+    setNewTodoTitle('')
+    setAddingTodoFor(null)
+  }
+
+  if (loading) return <div style={{ textAlign:'center', padding:40 }}><Loader2 style={{ width:24, height:24, color:'#e879f9', animation:'spin 1s linear infinite' }} /></div>
+
+  const FUCHSIA = '#e879f9'
+
+  return (
+    <div>
+      {/* Search bar */}
+      <div style={{ position:'sticky', top:0, zIndex:10, background:C.bg, paddingBottom:12 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:10, border:`1px solid ${C.border}`, background:C.input, transition:'border-color 0.15s' }}
+          onFocus={e => e.currentTarget.style.borderColor = FUCHSIA + '80'}
+          onBlur={e => e.currentTarget.style.borderColor = C.border}>
+          <Search style={{ width:16, height:16, color:C.textMuted, flexShrink:0 }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Søg session — navn, job-ID, dato, lokation..."
+            style={{ flex:1, border:'none', background:'transparent', color:C.text, fontSize:13, outline:'none' }}
+          />
+          {search && (
+            <button onClick={() => setSearch('')} style={{ border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', padding:2 }}>
+              <X style={{ width:14, height:14 }} />
+            </button>
+          )}
+        </div>
+        {search && <div style={{ fontSize:11, color:C.textMuted, marginTop:4, paddingLeft:2 }}>{filtered.length} resultat{filtered.length !== 1 ? 'er' : ''}</div>}
+      </div>
+
+      {/* Week groups */}
+      {weekGroups.weeks.map(([key, group]) => {
+        const isCollapsed = collapsedWeeks.has(key)
+        const isCurrent = group.monday.getTime() === currentMonday.getTime()
+        const isFuture = group.monday.getTime() > currentMonday.getTime()
+        const weekTodoCount = group.sessions.reduce((s, sess) => s + (sessionTodoCounts.get(sess.id) || 0), 0)
+
+        return (
+          <div key={key} style={{ marginBottom:12 }}>
+            {/* Week header */}
+            <button onClick={() => toggleWeek(key)} style={{
+              width:'100%', display:'flex', alignItems:'center', gap:8, padding:'10px 14px', borderRadius:10,
+              border:`1px solid ${isCurrent ? FUCHSIA + '40' : C.border}`,
+              background: isCurrent ? FUCHSIA + '08' : 'transparent',
+              cursor:'pointer', textAlign:'left', transition:'all 0.15s',
+            }}>
+              {isCollapsed ? <ChevronRight style={{ width:14, height:14, color: isCurrent ? FUCHSIA : C.textMuted }} /> : <ChevronDown style={{ width:14, height:14, color: isCurrent ? FUCHSIA : C.textMuted }} />}
+              <span style={{ flex:1, fontSize:12, fontWeight:700, color: isCurrent ? FUCHSIA : isFuture ? C.blue : C.textSec, textTransform:'uppercase', letterSpacing:'0.04em' }}>
+                {group.label}
+                {isCurrent && <span style={{ marginLeft:8, fontSize:10, fontWeight:600, padding:'1px 6px', borderRadius:6, background:FUCHSIA+'20', color:FUCHSIA }}>Denne uge</span>}
+              </span>
+              <span style={{ fontSize:11, fontWeight:600, padding:'1px 8px', borderRadius:8, background:FUCHSIA+'15', color:FUCHSIA }}>{group.sessions.length} jobs</span>
+              {weekTodoCount > 0 && <span style={{ fontSize:10, fontWeight:700, padding:'1px 7px', borderRadius:8, background:C.amber+'18', color:C.amber }}>{weekTodoCount} opgaver</span>}
+            </button>
+
+            {/* Session cards */}
+            {!isCollapsed && (
+              <div style={{ display:'flex', flexDirection:'column', gap:6, marginTop:6, paddingLeft:12 }}>
+                {group.sessions.map(s => (
+                  <SessionCard
+                    key={s.id}
+                    session={s}
+                    todoCount={sessionTodoCounts.get(s.id) || 0}
+                    expanded={expandedSession === s.id}
+                    onToggle={() => setExpandedSession(prev => prev === s.id ? null : s.id)}
+                    sessionTodos={expandedSession === s.id ? getSessionTodos(s.id) : []}
+                    employees={employees}
+                    addingTodo={addingTodoFor === s.id}
+                    newTodoTitle={newTodoTitle}
+                    onStartAddTodo={() => { setAddingTodoFor(s.id); setExpandedSession(s.id); setNewTodoTitle('') }}
+                    onNewTodoTitleChange={setNewTodoTitle}
+                    onSubmitTodo={() => handleAddSessionTodo(s.id)}
+                    onCancelAddTodo={() => setAddingTodoFor(null)}
+                    onToggleTodo={(id, resolved) => updateTodo(id, { resolved })}
+                    onDeleteTodo={id => deleteTodo(id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Sessions without date */}
+      {weekGroups.noDate.length > 0 && (
+        <div style={{ marginBottom:12 }}>
+          <div style={{ padding:'10px 14px', fontSize:12, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.04em', borderBottom:`1px solid ${C.border}`, marginBottom:6 }}>
+            Uden dato ({weekGroups.noDate.length})
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6, paddingLeft:12 }}>
+            {weekGroups.noDate.map(s => (
+              <SessionCard
+                key={s.id}
+                session={s}
+                todoCount={sessionTodoCounts.get(s.id) || 0}
+                expanded={expandedSession === s.id}
+                onToggle={() => setExpandedSession(prev => prev === s.id ? null : s.id)}
+                sessionTodos={expandedSession === s.id ? getSessionTodos(s.id) : []}
+                employees={employees}
+                addingTodo={addingTodoFor === s.id}
+                newTodoTitle={newTodoTitle}
+                onStartAddTodo={() => { setAddingTodoFor(s.id); setExpandedSession(s.id); setNewTodoTitle('') }}
+                onNewTodoTitleChange={setNewTodoTitle}
+                onSubmitTodo={() => handleAddSessionTodo(s.id)}
+                onCancelAddTodo={() => setAddingTodoFor(null)}
+                onToggleTodo={(id, resolved) => updateTodo(id, { resolved })}
+                onDeleteTodo={id => deleteTodo(id)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 && !loading && (
+        <Empty text={search ? 'Ingen sessions matcher søgningen' : 'Ingen sessions fundet'} />
+      )}
+    </div>
+  )
+}
+
+function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, employees, addingTodo, newTodoTitle, onStartAddTodo, onNewTodoTitleChange, onSubmitTodo, onCancelAddTodo, onToggleTodo, onDeleteTodo }: {
+  session: SessionJob
+  todoCount: number
+  expanded: boolean
+  onToggle: () => void
+  sessionTodos: Todo[]
+  employees: Map<string, Employee>
+  addingTodo: boolean
+  newTodoTitle: string
+  onStartAddTodo: () => void
+  onNewTodoTitleChange: (v: string) => void
+  onSubmitTodo: () => void
+  onCancelAddTodo: () => void
+  onToggleTodo: (id: string, resolved: boolean) => void
+  onDeleteTodo: (id: string) => void
+}) {
+  const [hovered, setHovered] = useState(false)
+  const FUCHSIA = '#e879f9'
+  const eventDate = s.event_date ? new Date(s.event_date) : null
+  const dateStr = eventDate ? eventDate.toLocaleDateString('da-DK', { weekday:'short', day:'numeric', month:'short' }) : null
+  const activeTodos = sessionTodos.filter(t => !t.resolved)
+  const doneTodos = sessionTodos.filter(t => t.resolved)
+
+  return (
+    <div
+      style={{
+        borderRadius:10,
+        border:`1px solid ${expanded ? FUCHSIA+'50' : hovered ? C.borderLight : C.border}`,
+        background: expanded ? FUCHSIA+'06' : hovered ? C.cardHover : C.card,
+        transition:'all 0.15s',
+        overflow:'hidden',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Card header — clickable */}
+      <div onClick={onToggle} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', cursor:'pointer' }}>
+        {/* Short code badge */}
+        {s.short_code && (
+          <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:6, background:FUCHSIA+'18', color:FUCHSIA, fontFamily:'monospace', flexShrink:0 }}>
+            #{s.short_code}
+          </span>
+        )}
+        {/* Client & location */}
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:13, fontWeight:600, color:C.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+            {s.client_name || 'Ingen kunde'}
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:2, fontSize:11, color:C.textMuted }}>
+            {dateStr && <span>{dateStr}</span>}
+            {s.location_name && <><span style={{ opacity:0.4 }}>·</span><span>{s.location_name}{s.location_city ? `, ${s.location_city}` : ''}</span></>}
+            {s.guests_count && <><span style={{ opacity:0.4 }}>·</span><span><Users style={{ width:10, height:10, display:'inline', verticalAlign:'-1px' }} /> {s.guests_count}</span></>}
+            {s.activities && s.activities.length > 0 && <><span style={{ opacity:0.4 }}>·</span><span>{s.activities.length} akt.</span></>}
+          </div>
+        </div>
+        {/* Status badge */}
+        {s.status && (
+          <span style={{ fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:6, background: s.status === 'sendt' ? C.green+'18' : C.amber+'18', color: s.status === 'sendt' ? C.green : C.amber, textTransform:'uppercase', flexShrink:0 }}>
+            {s.status}
+          </span>
+        )}
+        {/* Todo count badge */}
+        {todoCount > 0 && (
+          <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:8, background:C.amber+'18', color:C.amber, flexShrink:0 }}>
+            {todoCount} opgave{todoCount !== 1 ? 'r' : ''}
+          </span>
+        )}
+        {/* Add todo button */}
+        <button onClick={e => { e.stopPropagation(); onStartAddTodo() }} title="Tilføj opgave"
+          style={{ width:24, height:24, borderRadius:6, border:`1px solid ${FUCHSIA}40`, background:'transparent', color:FUCHSIA, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, transition:'all 0.15s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = FUCHSIA+'18' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+          <Plus style={{ width:14, height:14 }} />
+        </button>
+        {/* Expand chevron */}
+        {expanded ? <ChevronDown style={{ width:14, height:14, color:FUCHSIA, flexShrink:0 }} /> : <ChevronRight style={{ width:14, height:14, color:C.textMuted, flexShrink:0 }} />}
+      </div>
+
+      {/* Expanded: inline todo list */}
+      {expanded && (
+        <div style={{ padding:'0 14px 12px', borderTop:`1px solid ${C.border}` }}>
+          {/* Add todo form */}
+          {addingTodo && (
+            <div style={{ display:'flex', gap:6, marginTop:10, marginBottom:8 }}>
+              <input
+                autoFocus
+                value={newTodoTitle}
+                onChange={e => onNewTodoTitleChange(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') onSubmitTodo(); if (e.key === 'Escape') onCancelAddTodo() }}
+                placeholder="Ny opgave til denne session..."
+                style={{ flex:1, padding:'7px 10px', borderRadius:6, border:`1px solid ${FUCHSIA}40`, background:C.input, color:C.text, fontSize:12, outline:'none' }}
+              />
+              <button onClick={onSubmitTodo} style={{ padding:'6px 12px', borderRadius:6, border:'none', background:FUCHSIA, color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }}>Tilføj</button>
+              <button onClick={onCancelAddTodo} style={{ padding:'6px 8px', borderRadius:6, border:`1px solid ${C.border}`, background:'transparent', color:C.textMuted, fontSize:11, cursor:'pointer' }}>
+                <X style={{ width:12, height:12 }} />
+              </button>
+            </div>
+          )}
+
+          {/* Active todos */}
+          {activeTodos.length > 0 && (
+            <div style={{ display:'flex', flexDirection:'column', gap:4, marginTop:8 }}>
+              {activeTodos.map(t => (
+                <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 10px', borderRadius:6, border:`1px solid ${C.border}`, background:C.surface }}>
+                  <button onClick={() => onToggleTodo(t.id, true)} style={{ width:16, height:16, borderRadius:4, border:`2px solid ${FUCHSIA}60`, background:'transparent', cursor:'pointer', flexShrink:0 }} />
+                  <span style={{ flex:1, fontSize:12, color:C.text }}>{t.title}</span>
+                  {t.assigned_to && employees.get(t.assigned_to) && <span style={{ fontSize:10, color:C.textMuted }}>{employees.get(t.assigned_to)!.navn.split(' ')[0]}</span>}
+                  <button onClick={() => onDeleteTodo(t.id)} style={{ border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', padding:2, opacity:0.5 }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                    onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}>
+                    <Trash2 style={{ width:12, height:12 }} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Completed todos */}
+          {doneTodos.length > 0 && (
+            <div style={{ marginTop:8 }}>
+              <div style={{ fontSize:10, fontWeight:600, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:4 }}>Færdige ({doneTodos.length})</div>
+              {doneTodos.map(t => (
+                <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 10px', borderRadius:6, opacity:0.5 }}>
+                  <button onClick={() => onToggleTodo(t.id, false)} style={{ width:16, height:16, borderRadius:4, border:'none', background:FUCHSIA+'40', cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <Check style={{ width:10, height:10, color:FUCHSIA }} />
+                  </button>
+                  <span style={{ flex:1, fontSize:12, color:C.textMuted, textDecoration:'line-through' }}>{t.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTodos.length === 0 && doneTodos.length === 0 && !addingTodo && (
+            <div style={{ padding:'12px 0', textAlign:'center', fontSize:11, color:C.textMuted }}>
+              Ingen opgaver — klik <span style={{ color:FUCHSIA, fontWeight:600 }}>+</span> for at tilføje
+            </div>
+          )}
+
+          {/* Session notes if any */}
+          {(s.task_notes || s.notes) && (
+            <div style={{ marginTop:8, padding:'8px 10px', borderRadius:6, background:C.surface, border:`1px solid ${C.border}`, fontSize:11, color:C.textMuted, whiteSpace:'pre-wrap' }}>
+              {s.task_notes || s.notes}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ━━━ Landing Overlay ━━━ */
 /* ━━━ Sidebar ━━━ */
-type BuiltInViewKey = 'today' | 'week' | 'upcoming' | 'inbox' | 'thomas' | 'maria' | 'crew' | 'phone' | 'code' | 'repair' | 'transport' | 'shop' | 'ideas' | 'skilte'
+type BuiltInViewKey = 'today' | 'week' | 'upcoming' | 'inbox' | 'thomas' | 'maria' | 'crew' | 'phone' | 'code' | 'repair' | 'transport' | 'shop' | 'ideas' | 'skilte' | 'sessions'
 type ViewKeyLocal = BuiltInViewKey | `custom:${string}` | string
 
 function Sidebar({
@@ -3510,6 +3914,7 @@ function Sidebar({
         <SidebarItem dotColor={C.cyan} label="Øst / Vest" count={counts.transport} active={currentView==='transport'} color={C.cyan} onClick={() => setCurrentView('transport')} />
         <SidebarItem dotColor={C.green} label="Indkøb" count={counts.shop} active={currentView==='shop'} color={C.green} highlight={(dueCounts.shop || 0) > 0} onClick={() => setCurrentView('shop')} />
         <SidebarItem dotColor={'#f97316'} label="Skilte mangler" count={counts.skilte} active={currentView==='skilte'} color={'#f97316'} onClick={() => setCurrentView('skilte')} />
+        <SidebarItem dotColor={'#e879f9'} label="Sessions" count={counts.sessions} active={currentView==='sessions'} color={'#e879f9'} onClick={() => setCurrentView('sessions')} />
 
         {/* Custom lists */}
         {customLists && customLists.length > 0 && customLists.map(list => (
@@ -3656,6 +4061,7 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
     transport: 'Øst / Vest',
     shop: 'Indkøb',
     ideas: 'Idéer & Inspiration',
+    sessions: 'Sessions',
   }
   let title: string
   let count: number

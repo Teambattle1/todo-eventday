@@ -90,3 +90,21 @@ export interface PhoneCall {
   created_at: string
   updated_at: string
 }
+
+export interface SessionJob {
+  id: string
+  short_code: string | null
+  client_name: string | null
+  client_contact_name: string | null
+  client_contact_phone: string | null
+  event_date: string | null
+  event_end: string | null
+  location_name: string | null
+  location_city: string | null
+  status: string | null
+  guests_count: number | null
+  activities: string[] | null
+  notes: string | null
+  task_notes: string | null
+  created_at: string | null
+}
