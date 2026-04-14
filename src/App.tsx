@@ -7,6 +7,7 @@ import { usePhoneCalls } from './hooks/usePhoneCalls'
 import { useTransport } from './hooks/useTransport'
 import { useSkilte } from './hooks/useSkilte'
 import { useSessionJobs } from './hooks/useSessionJobs'
+import { useSessionTemplates, type Activity, type SessionTemplate } from './hooks/useSessionTemplates'
 import { useLists } from './hooks/useLists'
 import { useGeofence } from './hooks/useGeofence'
 import { useWakeLock } from './hooks/useWakeLock'
@@ -22,7 +23,7 @@ import {
   Plus, Check, Trash2, ChevronDown, ChevronUp, ChevronRight, AlertTriangle,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
   Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
-  Mic, MicOff, Keyboard, Bell, Search, Users, ClipboardList,
+  Mic, MicOff, Keyboard, Bell, Search, Users, ClipboardList, Settings,
 } from 'lucide-react'
 
 /* ━━━ Color Tokens ━━━ */
@@ -71,6 +72,7 @@ export default function App() {
   const transport = useTransport()
   const skilte = useSkilte()
   const sessionJobs = useSessionJobs()
+  const sessionTemplates = useSessionTemplates()
   const locations = useLocations()
   const { nearbyItems, watching: gpsActive } = useGeofence(todos, shop.items)
   useWakeLock()
@@ -869,6 +871,12 @@ export default function App() {
                   addTodo={addTodo}
                   updateTodo={updateTodo}
                   deleteTodo={deleteTodo}
+                  activities={sessionTemplates.activities}
+                  templates={sessionTemplates.templates}
+                  templatesByActivity={sessionTemplates.templatesByActivity}
+                  addTemplate={sessionTemplates.addTemplate}
+                  updateTemplate={sessionTemplates.updateTemplate}
+                  deleteTemplate={sessionTemplates.deleteTemplate}
                 />
               )}
 
@@ -3429,7 +3437,7 @@ function formatDateShort(d: Date): string {
   return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' })
 }
 
-function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo, deleteTodo }: {
+function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo, deleteTodo, activities, templates, templatesByActivity, addTemplate, updateTemplate, deleteTemplate }: {
   sessions: SessionJob[]
   loading: boolean
   todos: Todo[]
@@ -3437,6 +3445,12 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
   addTodo: (t: Partial<Todo>) => Promise<any>
   updateTodo: (id: string, u: Partial<Todo>) => Promise<any>
   deleteTodo: (id: string) => Promise<any>
+  activities: Activity[]
+  templates: SessionTemplate[]
+  templatesByActivity: Map<string, SessionTemplate[]>
+  addTemplate: (activityId: string, title: string) => Promise<any>
+  updateTemplate: (id: string, updates: Partial<SessionTemplate>) => Promise<any>
+  deleteTemplate: (id: string) => Promise<any>
 }) {
   const [search, setSearch] = useState('')
   const [expandedSession, setExpandedSession] = useState<string | null>(null)
@@ -3444,6 +3458,7 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
   const [newTodoTitle, setNewTodoTitle] = useState('')
   const [collapsedWeeks, setCollapsedWeeks] = useState<Set<string>>(() => new Set())
   const [initializedWeeks, setInitializedWeeks] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
 
   // Count todos per session
   const sessionTodoCounts = useMemo(() => {
@@ -3536,21 +3551,28 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
     setAddingTodoFor(null)
   }
 
+  const activityMap = useMemo(() => {
+    const m = new Map<string, Activity>()
+    activities.forEach(a => m.set(a.id, a))
+    return m
+  }, [activities])
+
   if (loading) return <div style={{ textAlign:'center', padding:40 }}><Loader2 style={{ width:24, height:24, color:'#e879f9', animation:'spin 1s linear infinite' }} /></div>
 
   const FUCHSIA = '#e879f9'
 
   return (
     <div>
-      {/* Search bar */}
+      {/* Search bar + template button */}
       <div style={{ position:'sticky', top:0, zIndex:10, background:C.bg, paddingBottom:12 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:10, border:`1px solid ${C.border}`, background:C.input, transition:'border-color 0.15s' }}
-          onFocus={e => e.currentTarget.style.borderColor = FUCHSIA + '80'}
-          onBlur={e => e.currentTarget.style.borderColor = C.border}>
-          <Search style={{ width:16, height:16, color:C.textMuted, flexShrink:0 }} />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+        <div style={{ display:'flex', gap:8 }}>
+          <div style={{ flex:1, display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:10, border:`1px solid ${C.border}`, background:C.input, transition:'border-color 0.15s' }}
+            onFocus={e => e.currentTarget.style.borderColor = FUCHSIA + '80'}
+            onBlur={e => e.currentTarget.style.borderColor = C.border}>
+            <Search style={{ width:16, height:16, color:C.textMuted, flexShrink:0 }} />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
             placeholder="Søg session — navn, job-ID, dato, lokation..."
             style={{ flex:1, border:'none', background:'transparent', color:C.text, fontSize:13, outline:'none' }}
           />
@@ -3559,9 +3581,24 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
               <X style={{ width:14, height:14 }} />
             </button>
           )}
+          </div>
+          <button onClick={() => setShowTemplates(p => !p)} title="Administrer todo-templates"
+            style={{ padding:'8px 12px', borderRadius:10, border:`1px solid ${showTemplates ? FUCHSIA+'60' : C.border}`, background: showTemplates ? FUCHSIA+'12' : C.input, color: showTemplates ? FUCHSIA : C.textMuted, cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontSize:11, fontWeight:600, flexShrink:0, transition:'all 0.15s' }}>
+            <Settings style={{ width:14, height:14 }} /> Templates
+          </button>
         </div>
         {search && <div style={{ fontSize:11, color:C.textMuted, marginTop:4, paddingLeft:2 }}>{filtered.length} resultat{filtered.length !== 1 ? 'er' : ''}</div>}
       </div>
+
+      {/* Template management panel */}
+      {showTemplates && (
+        <TemplateManager
+          activities={activities}
+          templatesByActivity={templatesByActivity}
+          addTemplate={addTemplate}
+          deleteTemplate={deleteTemplate}
+        />
+      )}
 
       {/* Week groups */}
       {weekGroups.weeks.map(([key, group]) => {
@@ -3608,6 +3645,7 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
                     onCancelAddTodo={() => setAddingTodoFor(null)}
                     onToggleTodo={(id, resolved) => updateTodo(id, { resolved })}
                     onDeleteTodo={id => deleteTodo(id)}
+                    activityMap={activityMap}
                   />
                 ))}
               </div>
@@ -3640,6 +3678,7 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
                 onCancelAddTodo={() => setAddingTodoFor(null)}
                 onToggleTodo={(id, resolved) => updateTodo(id, { resolved })}
                 onDeleteTodo={id => deleteTodo(id)}
+                activityMap={activityMap}
               />
             ))}
           </div>
@@ -3653,7 +3692,99 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
   )
 }
 
-function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, employees, addingTodo, newTodoTitle, onStartAddTodo, onNewTodoTitleChange, onSubmitTodo, onCancelAddTodo, onToggleTodo, onDeleteTodo }: {
+function TemplateManager({ activities, templatesByActivity, addTemplate, deleteTemplate }: {
+  activities: Activity[]
+  templatesByActivity: Map<string, SessionTemplate[]>
+  addTemplate: (activityId: string, title: string) => Promise<any>
+  deleteTemplate: (id: string) => Promise<any>
+}) {
+  const [addingFor, setAddingFor] = useState<string | null>(null)
+  const [newTitle, setNewTitle] = useState('')
+  const [expandedAct, setExpandedAct] = useState<string | null>(null)
+  const FUCHSIA = '#e879f9'
+
+  const handleAdd = async (actId: string) => {
+    if (!newTitle.trim()) return
+    await addTemplate(actId, newTitle.trim())
+    setNewTitle('')
+    setAddingFor(null)
+  }
+
+  return (
+    <div style={{ marginBottom:16, padding:16, borderRadius:12, border:`1px solid ${FUCHSIA}30`, background:FUCHSIA+'06' }}>
+      <div style={{ fontSize:13, fontWeight:700, color:FUCHSIA, marginBottom:10, display:'flex', alignItems:'center', gap:6 }}>
+        <ClipboardList style={{ width:14, height:14 }} /> Todo Templates pr. Aktivitet
+      </div>
+      <div style={{ fontSize:11, color:C.textMuted, marginBottom:12 }}>
+        Tilføj standard-opgaver der automatisk oprettes når en session accepteres. Klik på en aktivitet for at administrere.
+      </div>
+      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+        {activities.map(act => {
+          const items = templatesByActivity.get(act.id) || []
+          const isOpen = expandedAct === act.id
+          return (
+            <div key={act.id} style={{ borderRadius:8, border:`1px solid ${act.color}30`, overflow:'hidden' }}>
+              {/* Activity header */}
+              <button onClick={() => setExpandedAct(isOpen ? null : act.id)} style={{
+                width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 12px',
+                background: isOpen ? act.color+'10' : 'transparent', border:'none', cursor:'pointer', textAlign:'left',
+              }}>
+                <div style={{ width:8, height:8, borderRadius:4, background:act.color, flexShrink:0 }} />
+                <span style={{ flex:1, fontSize:12, fontWeight:600, color: isOpen ? act.color : C.textSec }}>{act.name}</span>
+                <span style={{ fontSize:10, fontWeight:600, padding:'1px 6px', borderRadius:6, background:act.color+'15', color:act.color }}>{items.length} punkt{items.length !== 1 ? 'er' : ''}</span>
+                {isOpen ? <ChevronDown style={{ width:12, height:12, color:act.color }} /> : <ChevronRight style={{ width:12, height:12, color:C.textMuted }} />}
+              </button>
+
+              {/* Template items */}
+              {isOpen && (
+                <div style={{ padding:'6px 12px 10px' }}>
+                  {items.map(t => (
+                    <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 8px', borderRadius:6, marginBottom:3, background:C.surface, border:`1px solid ${C.border}` }}>
+                      <Check style={{ width:12, height:12, color:act.color, flexShrink:0 }} />
+                      <span style={{ flex:1, fontSize:12, color:C.text }}>{t.title}</span>
+                      <button onClick={() => deleteTemplate(t.id)} style={{ border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', padding:2, opacity:0.5 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.5'}>
+                        <Trash2 style={{ width:11, height:11 }} />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Add new template item */}
+                  {addingFor === act.id ? (
+                    <div style={{ display:'flex', gap:6, marginTop:4 }}>
+                      <input
+                        autoFocus
+                        value={newTitle}
+                        onChange={e => setNewTitle(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleAdd(act.id); if (e.key === 'Escape') setAddingFor(null) }}
+                        placeholder="Ny template-opgave..."
+                        style={{ flex:1, padding:'5px 8px', borderRadius:6, border:`1px solid ${act.color}40`, background:C.input, color:C.text, fontSize:11, outline:'none' }}
+                      />
+                      <button onClick={() => handleAdd(act.id)} style={{ padding:'4px 10px', borderRadius:6, border:'none', background:act.color, color:'#fff', fontSize:10, fontWeight:700, cursor:'pointer' }}>Tilføj</button>
+                      <button onClick={() => setAddingFor(null)} style={{ padding:'4px 6px', borderRadius:6, border:`1px solid ${C.border}`, background:'transparent', color:C.textMuted, cursor:'pointer' }}>
+                        <X style={{ width:10, height:10 }} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setAddingFor(act.id); setNewTitle('') }} style={{
+                      display:'flex', alignItems:'center', gap:6, padding:'5px 8px', borderRadius:6, marginTop:4,
+                      border:`1px dashed ${act.color}30`, background:'transparent', color:act.color, fontSize:11, fontWeight:600, cursor:'pointer', width:'100%', textAlign:'left',
+                    }}>
+                      <Plus style={{ width:11, height:11 }} /> Tilføj punkt
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, employees, addingTodo, newTodoTitle, onStartAddTodo, onNewTodoTitleChange, onSubmitTodo, onCancelAddTodo, onToggleTodo, onDeleteTodo, activityMap }: {
   session: SessionJob
   todoCount: number
   expanded: boolean
@@ -3668,6 +3799,7 @@ function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, 
   onCancelAddTodo: () => void
   onToggleTodo: (id: string, resolved: boolean) => void
   onDeleteTodo: (id: string) => void
+  activityMap: Map<string, Activity>
 }) {
   const [hovered, setHovered] = useState(false)
   const FUCHSIA = '#e879f9'
@@ -3701,12 +3833,24 @@ function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, 
           <div style={{ fontSize:13, fontWeight:600, color:C.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
             {s.client_name || 'Ingen kunde'}
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:2, fontSize:11, color:C.textMuted }}>
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:3, fontSize:11, color:C.textMuted, flexWrap:'wrap' }}>
             {dateStr && <span>{dateStr}</span>}
             {s.location_name && <><span style={{ opacity:0.4 }}>·</span><span>{s.location_name}{s.location_city ? `, ${s.location_city}` : ''}</span></>}
             {s.guests_count && <><span style={{ opacity:0.4 }}>·</span><span><Users style={{ width:10, height:10, display:'inline', verticalAlign:'-1px' }} /> {s.guests_count}</span></>}
-            {s.activities && s.activities.length > 0 && <><span style={{ opacity:0.4 }}>·</span><span>{s.activities.length} akt.</span></>}
           </div>
+          {/* Activity tags */}
+          {Array.isArray(s.activities) && s.activities.length > 0 && (
+            <div style={{ display:'flex', gap:4, marginTop:3, flexWrap:'wrap' }}>
+              {s.activities.map(aId => {
+                const act = activityMap.get(aId)
+                return (
+                  <span key={aId} style={{ fontSize:9, fontWeight:700, padding:'1px 6px', borderRadius:4, background:(act?.color || '#888')+'20', color: act?.color || '#888', border:`1px solid ${(act?.color || '#888')}30`, letterSpacing:'0.02em' }}>
+                    {act?.name || aId}
+                  </span>
+                )
+              })}
+            </div>
+          )}
         </div>
         {/* Status badge */}
         {s.status && (
