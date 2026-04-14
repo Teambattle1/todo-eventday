@@ -868,6 +868,8 @@ export default function App() {
                   loading={sessionJobs.loading}
                   todos={todos}
                   employees={employees}
+                  thomasEmp={thomasEmp}
+                  mariaEmp={mariaEmp}
                   addTodo={addTodo}
                   updateTodo={updateTodo}
                   deleteTodo={deleteTodo}
@@ -3437,11 +3439,13 @@ function formatDateShort(d: Date): string {
   return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' })
 }
 
-function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo, deleteTodo, activities, templates, templatesByActivity, addTemplate, updateTemplate, deleteTemplate }: {
+function SessionsView({ sessions, loading, todos, employees, thomasEmp, mariaEmp, addTodo, updateTodo, deleteTodo, activities, templates, templatesByActivity, addTemplate, updateTemplate, deleteTemplate }: {
   sessions: SessionJob[]
   loading: boolean
   todos: Todo[]
   employees: Map<string, Employee>
+  thomasEmp: Employee | undefined
+  mariaEmp: Employee | undefined
   addTodo: (t: Partial<Todo>) => Promise<any>
   updateTodo: (id: string, u: Partial<Todo>) => Promise<any>
   deleteTodo: (id: string) => Promise<any>
@@ -3456,6 +3460,7 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
   const [expandedSession, setExpandedSession] = useState<string | null>(null)
   const [addingTodoFor, setAddingTodoFor] = useState<string | null>(null)
   const [newTodoTitle, setNewTodoTitle] = useState('')
+  const [newTodoAssign, setNewTodoAssign] = useState<string | null>(null)
   const [collapsedWeeks, setCollapsedWeeks] = useState<Set<string>>(() => new Set())
   const [initializedWeeks, setInitializedWeeks] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
@@ -3511,21 +3516,24 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
     // Sort sessions within each week by event_date ascending
     groups.forEach(g => g.sessions.sort((a, b) => new Date(a.event_date!).getTime() - new Date(b.event_date!).getTime()))
 
-    // Sort weeks descending (newest first) so current week is near top
-    const sorted = [...groups.entries()].sort((a, b) => b[1].monday.getTime() - a[1].monday.getTime())
+    // Filter out past weeks (only current week + future), sort ascending from today forward
+    const today = getWeekMonday(new Date())
+    const sorted = [...groups.entries()]
+      .filter(([, g]) => g.monday.getTime() >= today.getTime())
+      .sort((a, b) => a[1].monday.getTime() - b[1].monday.getTime())
 
     return { weeks: sorted, noDate }
   }, [filtered])
 
-  // Auto-collapse past weeks on first load
+  // Auto-collapse all weeks except the current week
   const currentMonday = getWeekMonday(new Date())
   useEffect(() => {
     if (initializedWeeks || weekGroups.weeks.length === 0) return
-    const past = new Set<string>()
+    const collapsed = new Set<string>()
     weekGroups.weeks.forEach(([key, g]) => {
-      if (g.monday.getTime() < currentMonday.getTime()) past.add(key)
+      if (g.monday.getTime() !== currentMonday.getTime()) collapsed.add(key)
     })
-    setCollapsedWeeks(past)
+    setCollapsedWeeks(collapsed)
     setInitializedWeeks(true)
   }, [weekGroups.weeks, initializedWeeks, currentMonday])
 
@@ -3546,8 +3554,14 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
 
   const handleAddSessionTodo = async (jobId: string) => {
     if (!newTodoTitle.trim()) return
-    await addTodo({ title: newTodoTitle.trim(), category: `session:${jobId}`, priority: 'Normal' })
+    await addTodo({
+      title: newTodoTitle.trim(),
+      category: `session:${jobId}`,
+      priority: 'Normal',
+      assigned_to: newTodoAssign,
+    })
     setNewTodoTitle('')
+    setNewTodoAssign(null)
     setAddingTodoFor(null)
   }
 
@@ -3639,13 +3653,17 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
                     employees={employees}
                     addingTodo={addingTodoFor === s.id}
                     newTodoTitle={newTodoTitle}
-                    onStartAddTodo={() => { setAddingTodoFor(s.id); setExpandedSession(s.id); setNewTodoTitle('') }}
+                    onStartAddTodo={() => { setAddingTodoFor(s.id); setExpandedSession(s.id); setNewTodoTitle(''); setNewTodoAssign(null) }}
                     onNewTodoTitleChange={setNewTodoTitle}
+                    newTodoAssign={newTodoAssign}
+                    onNewTodoAssignChange={setNewTodoAssign}
                     onSubmitTodo={() => handleAddSessionTodo(s.id)}
-                    onCancelAddTodo={() => setAddingTodoFor(null)}
+                    onCancelAddTodo={() => { setAddingTodoFor(null); setNewTodoAssign(null) }}
                     onToggleTodo={(id, resolved) => updateTodo(id, { resolved })}
                     onDeleteTodo={id => deleteTodo(id)}
                     activityMap={activityMap}
+                    thomasEmp={thomasEmp}
+                    mariaEmp={mariaEmp}
                   />
                 ))}
               </div>
@@ -3672,13 +3690,17 @@ function SessionsView({ sessions, loading, todos, employees, addTodo, updateTodo
                 employees={employees}
                 addingTodo={addingTodoFor === s.id}
                 newTodoTitle={newTodoTitle}
-                onStartAddTodo={() => { setAddingTodoFor(s.id); setExpandedSession(s.id); setNewTodoTitle('') }}
+                onStartAddTodo={() => { setAddingTodoFor(s.id); setExpandedSession(s.id); setNewTodoTitle(''); setNewTodoAssign(null) }}
                 onNewTodoTitleChange={setNewTodoTitle}
+                newTodoAssign={newTodoAssign}
+                onNewTodoAssignChange={setNewTodoAssign}
                 onSubmitTodo={() => handleAddSessionTodo(s.id)}
-                onCancelAddTodo={() => setAddingTodoFor(null)}
+                onCancelAddTodo={() => { setAddingTodoFor(null); setNewTodoAssign(null) }}
                 onToggleTodo={(id, resolved) => updateTodo(id, { resolved })}
                 onDeleteTodo={id => deleteTodo(id)}
                 activityMap={activityMap}
+                thomasEmp={thomasEmp}
+                mariaEmp={mariaEmp}
               />
             ))}
           </div>
@@ -3784,7 +3806,7 @@ function TemplateManager({ activities, templatesByActivity, addTemplate, deleteT
   )
 }
 
-function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, employees, addingTodo, newTodoTitle, onStartAddTodo, onNewTodoTitleChange, onSubmitTodo, onCancelAddTodo, onToggleTodo, onDeleteTodo, activityMap }: {
+function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, employees, addingTodo, newTodoTitle, onStartAddTodo, onNewTodoTitleChange, newTodoAssign, onNewTodoAssignChange, onSubmitTodo, onCancelAddTodo, onToggleTodo, onDeleteTodo, activityMap, thomasEmp, mariaEmp }: {
   session: SessionJob
   todoCount: number
   expanded: boolean
@@ -3795,12 +3817,19 @@ function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, 
   newTodoTitle: string
   onStartAddTodo: () => void
   onNewTodoTitleChange: (v: string) => void
+  newTodoAssign: string | null
+  onNewTodoAssignChange: (v: string | null) => void
   onSubmitTodo: () => void
   onCancelAddTodo: () => void
   onToggleTodo: (id: string, resolved: boolean) => void
   onDeleteTodo: (id: string) => void
   activityMap: Map<string, Activity>
+  thomasEmp: Employee | undefined
+  mariaEmp: Employee | undefined
 }) {
+  const crewMembers = useMemo(() =>
+    [...employees.values()].filter(e => e.id !== thomasEmp?.id && e.id !== mariaEmp?.id)
+  , [employees, thomasEmp, mariaEmp])
   const [hovered, setHovered] = useState(false)
   const FUCHSIA = '#e879f9'
   const eventDate = s.event_date ? new Date(s.event_date) : null
@@ -3880,19 +3909,52 @@ function SessionCard({ session: s, todoCount, expanded, onToggle, sessionTodos, 
         <div style={{ padding:'0 14px 12px', borderTop:`1px solid ${C.border}` }}>
           {/* Add todo form */}
           {addingTodo && (
-            <div style={{ display:'flex', gap:6, marginTop:10, marginBottom:8 }}>
-              <input
-                autoFocus
-                value={newTodoTitle}
-                onChange={e => onNewTodoTitleChange(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') onSubmitTodo(); if (e.key === 'Escape') onCancelAddTodo() }}
-                placeholder="Ny opgave til denne session..."
-                style={{ flex:1, padding:'7px 10px', borderRadius:6, border:`1px solid ${FUCHSIA}40`, background:C.input, color:C.text, fontSize:12, outline:'none' }}
-              />
-              <button onClick={onSubmitTodo} style={{ padding:'6px 12px', borderRadius:6, border:'none', background:FUCHSIA, color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }}>Tilføj</button>
-              <button onClick={onCancelAddTodo} style={{ padding:'6px 8px', borderRadius:6, border:`1px solid ${C.border}`, background:'transparent', color:C.textMuted, fontSize:11, cursor:'pointer' }}>
-                <X style={{ width:12, height:12 }} />
-              </button>
+            <div style={{ display:'flex', flexDirection:'column', gap:8, marginTop:10, marginBottom:8 }}>
+              <div style={{ display:'flex', gap:6 }}>
+                <input
+                  autoFocus
+                  value={newTodoTitle}
+                  onChange={e => onNewTodoTitleChange(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') onSubmitTodo(); if (e.key === 'Escape') onCancelAddTodo() }}
+                  placeholder="Ny opgave til denne session..."
+                  style={{ flex:1, padding:'7px 10px', borderRadius:6, border:`1px solid ${FUCHSIA}40`, background:C.input, color:C.text, fontSize:12, outline:'none' }}
+                />
+                <button onClick={onSubmitTodo} style={{ padding:'6px 12px', borderRadius:6, border:'none', background:FUCHSIA, color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }}>Tilføj</button>
+                <button onClick={onCancelAddTodo} style={{ padding:'6px 8px', borderRadius:6, border:`1px solid ${C.border}`, background:'transparent', color:C.textMuted, fontSize:11, cursor:'pointer' }}>
+                  <X style={{ width:12, height:12 }} />
+                </button>
+              </div>
+              {/* Assignee buttons */}
+              <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                <span style={{ fontSize:10, fontWeight:600, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.04em' }}>Tildel:</span>
+                {thomasEmp && (
+                  <button onClick={() => onNewTodoAssignChange(newTodoAssign === thomasEmp.id ? null : thomasEmp.id)}
+                    style={{ padding:'3px 10px', borderRadius:12, border:`1px solid ${newTodoAssign === thomasEmp.id ? C.blue : C.border}`, background: newTodoAssign === thomasEmp.id ? C.blue+'20' : 'transparent', color: newTodoAssign === thomasEmp.id ? C.blue : C.textSec, fontSize:10, fontWeight:700, cursor:'pointer', textTransform:'uppercase' }}>
+                    Thomas
+                  </button>
+                )}
+                {mariaEmp && (
+                  <button onClick={() => onNewTodoAssignChange(newTodoAssign === mariaEmp.id ? null : mariaEmp.id)}
+                    style={{ padding:'3px 10px', borderRadius:12, border:`1px solid ${newTodoAssign === mariaEmp.id ? C.pink : C.border}`, background: newTodoAssign === mariaEmp.id ? C.pink+'20' : 'transparent', color: newTodoAssign === mariaEmp.id ? C.pink : C.textSec, fontSize:10, fontWeight:700, cursor:'pointer', textTransform:'uppercase' }}>
+                    Maria
+                  </button>
+                )}
+                {crewMembers.length > 0 && (
+                  <select
+                    value={crewMembers.some(c => c.id === newTodoAssign) ? (newTodoAssign || '') : ''}
+                    onChange={e => onNewTodoAssignChange(e.target.value || null)}
+                    style={{ padding:'3px 8px', borderRadius:12, border:`1px solid ${crewMembers.some(c => c.id === newTodoAssign) ? C.cyan : C.border}`, background: crewMembers.some(c => c.id === newTodoAssign) ? C.cyan+'20' : C.input, color: crewMembers.some(c => c.id === newTodoAssign) ? C.cyan : C.textSec, fontSize:10, fontWeight:700, cursor:'pointer', textTransform:'uppercase', outline:'none' }}>
+                    <option value="">Crew...</option>
+                    {crewMembers.map(c => <option key={c.id} value={c.id}>{c.navn}</option>)}
+                  </select>
+                )}
+                {newTodoAssign && (
+                  <button onClick={() => onNewTodoAssignChange(null)} title="Fjern tildeling"
+                    style={{ padding:'3px 6px', borderRadius:12, border:`1px solid ${C.border}`, background:'transparent', color:C.textMuted, fontSize:10, cursor:'pointer' }}>
+                    <X style={{ width:10, height:10 }} />
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
