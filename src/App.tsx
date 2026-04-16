@@ -20,7 +20,7 @@ import {
   decodeHtmlEntities, isOverdue, getInitials, hashColor,
 } from './lib/utils'
 import {
-  Plus, Check, Trash2, ChevronDown, ChevronUp, ChevronRight, AlertTriangle,
+  Plus, Check, Trash2, ChevronDown, ChevronUp, ChevronRight, AlertTriangle, QrCode,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
   Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
   Mic, MicOff, Keyboard, Bell, Search, Users, ClipboardList, Settings,
@@ -563,6 +563,7 @@ export default function App() {
                   onDeleteSection={sid => deleteListSection('thomas', sid)}
                   onRenameSection={(sid, name) => renameListSection('thomas', sid, name)}
                   onSetSectionColor={(sid, col) => setListSectionColor('thomas', sid, col)}
+                  hideCategoryTag
                 />
                 {thomasTasks.length === 0 && !addingTaskThomas && <Empty text="Ingen aktive opgaver" />}
               </>)}
@@ -612,7 +613,7 @@ export default function App() {
                       <span style={{ fontSize:12, fontWeight:700, color:C.text, textTransform:'uppercase', letterSpacing:'0.05em' }}>{section.name}</span>
                       <span style={{ fontSize:10, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 7px', borderRadius:10 }}>{items.length}</span>
                     </div>
-                    {items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} />)}
+                    {items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => updateTodo(t.id, { resolved: true })} onDel={() => deleteTodo(t.id)} onClick={() => setEditingTodo(t)} hideCategoryTag={parentKey === 'thomas'} />)}
                     {items.length === 0 && !adding && <Empty text="Sektionen er tom — træk opgaver hertil eller tilføj en ny" />}
                   </>
                 )
@@ -1571,7 +1572,7 @@ function DatePicker({ value, onChange, showTime, style: wrapStyle }: { value: st
 }
 
 /* ━━━ Task Card (compact) ━━━ */
-function TaskCard({ t, emp, onDone, onDel, onClick }: { t:Todo; emp?:Employee; onDone:()=>void; onDel:()=>void; onClick?:()=>void }) {
+function TaskCard({ t, emp, onDone, onDel, onClick, hideCategoryTag }: { t:Todo; emp?:Employee; onDone:()=>void; onDel:()=>void; onClick?:()=>void; hideCategoryTag?:boolean }) {
   const od = isOverdue(t.due_date)
   const pc = getPriorityColor(t.priority)
   const title = decodeHtmlEntities(t.title)
@@ -1606,7 +1607,7 @@ function TaskCard({ t, emp, onDone, onDel, onClick }: { t:Todo; emp?:Employee; o
         <div style={{ fontSize:13, fontWeight:600, lineHeight:1.3, color:C.text, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{title}</div>
         <div style={{ display:'flex', alignItems:'center', gap:5, flexWrap:'wrap', marginTop:3 }}>
           {t.due_date && <DuePill date={t.due_date} />}
-          {t.category && t.category !== 'null' && !t.category.startsWith('custom:') && (
+          {t.category && t.category !== 'null' && !t.category.startsWith('custom:') && !hideCategoryTag && (
             <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:(CAT_COLORS[t.category] || C.blue)+'18', color:CAT_COLORS[t.category] || C.blue, textTransform:'uppercase', letterSpacing:'0.04em' }}>{t.category}</span>
           )}
           {t.category?.startsWith('custom:') && (
@@ -4330,7 +4331,13 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
       )}
       <span style={{ fontSize:12, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 10px', borderRadius:12 }}>{count}</span>
       <span style={{ fontSize:11, fontWeight:700, color:C.amber, background:C.amber+'15', border:`1px solid ${C.amber}35`, padding:'3px 10px', borderRadius:12, letterSpacing:'0.04em' }}>UGE {weekNo}</span>
-      {!isMobile && <div style={{ marginLeft:'auto' }}><LiveClock /></div>}
+      <a href="https://teambattle1.github.io/QR/" target="_blank" rel="noopener noreferrer"
+         title="QR code generator & scanner"
+         style={{ marginLeft: isMobile ? 'auto' : undefined, display:'inline-flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:10, border:`1px solid ${C.border}`, background:C.input, color:C.text, textDecoration:'none', fontSize:11, fontWeight:700, letterSpacing:'0.08em' }}>
+        <QrCode style={{ width:14, height:14, color:'#ff6600' }} />
+        <span>QR</span>
+      </a>
+      {!isMobile && <div><LiveClock /></div>}
     </header>
   )
 }
@@ -4364,7 +4371,7 @@ function SectionManager({ sections, onAdd }: { listKey: string; sections: { id: 
 }
 
 /* ━━━ Sectioned List — renders tasks grouped by section with drop targets ━━━ */
-function SectionedList({ groups, color, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection, onRenameSection, onSetSectionColor }: {
+function SectionedList({ groups, color, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection, onRenameSection, onSetSectionColor, hideCategoryTag }: {
   listKey: string
   groups: { sectionId: string | null; name: string; color?: string | null; items: Todo[] }[]
   color: string
@@ -4376,6 +4383,7 @@ function SectionedList({ groups, color, employees, onToggle, onDelete, onClickTa
   onDeleteSection: (sectionId: string) => void | Promise<any>
   onRenameSection: (sectionId: string, name: string) => void
   onSetSectionColor: (sectionId: string, color: string) => void
+  hideCategoryTag?: boolean
 }) {
   return (
     <>
@@ -4394,13 +4402,14 @@ function SectionedList({ groups, color, employees, onToggle, onDelete, onClickTa
           onDeleteSection={g.sectionId ? () => onDeleteSection(g.sectionId!) : undefined}
           onRenameSection={g.sectionId ? (name: string) => onRenameSection(g.sectionId!, name) : undefined}
           onSetColor={g.sectionId ? (col: string) => onSetSectionColor(g.sectionId!, col) : undefined}
+          hideCategoryTag={hideCategoryTag}
         />
       ))}
     </>
   )
 }
 
-function SectionBlock({ name, color, items, isDefault, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection, onRenameSection, onSetColor }: {
+function SectionBlock({ name, color, items, isDefault, employees, onToggle, onDelete, onClickTask, onDropTodo, onDeleteSection, onRenameSection, onSetColor, hideCategoryTag }: {
   name: string; color: string; items: Todo[]; isDefault: boolean
   employees: Map<string, Employee>
   onToggle: (t: Todo) => void; onDelete: (t: Todo) => void; onClickTask: (t: Todo) => void
@@ -4408,6 +4417,7 @@ function SectionBlock({ name, color, items, isDefault, employees, onToggle, onDe
   onDeleteSection?: () => void | Promise<any>
   onRenameSection?: (name: string) => void
   onSetColor?: (color: string) => void
+  hideCategoryTag?: boolean
 }) {
   const [dragOver, setDragOver] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -4493,7 +4503,7 @@ function SectionBlock({ name, color, items, isDefault, employees, onToggle, onDe
       {items.length === 0 ? (
         <div style={{ fontSize:11, color:C.textMuted, padding:'8px 4px', fontStyle:'italic' }}>Træk opgaver hertil</div>
       ) : (
-        items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => onToggle(t)} onDel={() => onDelete(t)} onClick={() => onClickTask(t)} />)
+        items.map(t => <TaskCard key={t.id} t={t} emp={t.assigned_to ? employees.get(t.assigned_to) : undefined} onDone={() => onToggle(t)} onDel={() => onDelete(t)} onClick={() => onClickTask(t)} hideCategoryTag={hideCategoryTag} />)
       )}
     </div>
   )
