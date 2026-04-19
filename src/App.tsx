@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment, type ReactNode } from 'react'
 import { useQueryState, parseAsString } from 'nuqs'
 import { useTodos } from './hooks/useTodos'
 import { useEmployees } from './hooks/useEmployees'
@@ -942,6 +942,7 @@ export default function App() {
             setEditingTodo(null)
           }}
           customLists={customLists}
+          sectionsByList={sectionsByList}
           onConvertToShop={async () => {
             await shop.addItem(
               editingTodo.title,
@@ -2200,13 +2201,14 @@ function MapPicker({ lat, lon, address, onPick, onClear, locations, onPickLocati
   )
 }
 
-function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose, onSave, onDelete, onConvertToTransport, customLists, onConvertToShop, onConvertToPhoneCall }: {
+function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose, onSave, onDelete, onConvertToTransport, customLists, sectionsByList, onConvertToShop, onConvertToPhoneCall }: {
   todo: Todo; employees: Map<string, Employee>; locations: ReturnType<typeof useLocations>; thomasId?: string; mariaId?: string
   onClose: () => void
   onSave: (updates: Partial<Todo>) => Promise<any>
   onDelete: () => Promise<any>
   onConvertToTransport?: () => Promise<any>
   customLists?: { id: string; name: string; color: string }[]
+  sectionsByList?: Record<string, { id: string; name: string; color?: string | null }[]>
   onConvertToShop?: () => Promise<any>
   onConvertToPhoneCall?: () => Promise<any>
 }) {
@@ -2216,6 +2218,7 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
   const [cDate, sCD] = useState(todo.due_date || '')
   const [assign, sA] = useState(todo.assigned_to || '')
   const [category, sCat] = useState<string | null>(todo.category || null)
+  const [sectionId, sSec] = useState<string | null>(todo.section_id || null)
   const [geoLat, sGeoLat] = useState<number | null>(todo.lat)
   const [geoLon, sGeoLon] = useState<number | null>(todo.lon)
   const [geoAddr, sGeoAddr] = useState(todo.geo_address || '')
@@ -2242,6 +2245,7 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
       due_date: cDate || null,
       assigned_to: assign || null,
       category,
+      section_id: sectionId,
       lat: geoLat,
       lon: geoLon,
       geo_address: geoAddr || null,
@@ -2251,21 +2255,28 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
   }
 
   // Flyt til liste helper
-  const currentCol = category?.startsWith('custom:') ? category :
+  const baseListKey = category?.startsWith('custom:') ? category :
     category === 'CODE' ? 'CODE' :
     category === 'REPAIR' ? 'REPAIR' :
     (assign === thomasId ? 'thomas' : assign === mariaId ? 'maria' : assign ? 'crew' : 'none')
+  const SEC_SEP = '@@sec@@'
+  const currentCol = sectionId ? `${baseListKey}${SEC_SEP}${sectionId}` : baseListKey
+  const applyListKey = (key: string) => {
+    if (key === 'CODE') { sCat('CODE'); return }
+    if (key === 'REPAIR') { sCat('REPAIR'); return }
+    if (key.startsWith('custom:')) { sCat(key); return }
+    sCat(null)
+    if (key === 'thomas') sA(thomasId || '')
+    else if (key === 'maria') sA(mariaId || '')
+    else if (key === 'none') sA('')
+  }
   const moveTo = async (col: string) => {
     if (col === '__shop__' && onConvertToShop) { await onConvertToShop(); return }
     if (col === '__phone__' && onConvertToPhoneCall) { await onConvertToPhoneCall(); return }
     if (col === '__transport__' && onConvertToTransport) { await onConvertToTransport(); return }
-    if (col === 'CODE') { sCat('CODE'); return }
-    if (col === 'REPAIR') { sCat('REPAIR'); return }
-    if (col.startsWith('custom:')) { sCat(col); return }
-    sCat(null)
-    if (col === 'thomas') sA(thomasId || '')
-    else if (col === 'maria') sA(mariaId || '')
-    else if (col === 'none') sA('')
+    const [listKey, secId] = col.includes(SEC_SEP) ? col.split(SEC_SEP) : [col, null]
+    applyListKey(listKey)
+    sSec(secId || null)
   }
 
   return (
@@ -2315,7 +2326,7 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
 
             {/* ── SECTION: Flyt til liste ── */}
             <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til liste" />
-            <select value={currentCol} onChange={e => moveTo(e.target.value)} style={{ ...inputStyle, fontSize:12 }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
+            <select value={baseListKey} onChange={e => moveTo(e.target.value)} style={{ ...inputStyle, fontSize:12 }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
               <optgroup label="Personer">
                 <option value="thomas">TODO {employees.get(thomasId || '')?.navn || 'Thomas'}</option>
                 <option value="maria">TODO {employees.get(mariaId || '')?.navn || 'Maria'}</option>
@@ -2337,6 +2348,23 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
                 </optgroup>
               )}
             </select>
+
+            {/* ── SECTION: Flyt til sektion ── */}
+            {(() => {
+              const sections = sectionsByList?.[baseListKey] || []
+              if (sections.length === 0) return null
+              return (
+                <>
+                  <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til sektion" />
+                  <select value={sectionId || ''} onChange={e => sSec(e.target.value || null)} style={{ ...inputStyle, fontSize:12 }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
+                    <option value="">Ingen sektion</option>
+                    {sections.map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </>
+              )
+            })()}
 
             {/* ── SECTION: Tildelt ── */}
             <SectionLabel icon={<Check style={{ width:12, height:12 }} />} label="Tildelt" />
