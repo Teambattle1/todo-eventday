@@ -93,13 +93,14 @@ export function useLists() {
   }, [])
 
   // Section operations
-  const addSection = useCallback(async (listKey: string, name: string, color?: string) => {
-    if (!name.trim()) return
+  const addSection = useCallback(async (listKey: string, name: string, color?: string): Promise<string | null> => {
+    if (!name.trim()) return null
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
     const existing = sections.filter(s => s.list_key === listKey).length
     const row: ListSection = { id, list_key: listKey, name: name.trim(), color: color || null, sort_order: existing }
     setSections(prev => [...prev, row])
     await supabase.from('list_sections').insert(row)
+    return id
   }, [sections])
 
   const renameSection = useCallback(async (sectionId: string, name: string) => {

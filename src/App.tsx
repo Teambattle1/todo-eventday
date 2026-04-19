@@ -286,7 +286,7 @@ export default function App() {
     deleteCustomListDb(id)
     if (currentView === `custom:${id}`) setCurrentView('today')
   }
-  const addListSection = (listKey: string, name: string, color?: string) => { addSection(listKey, name, color) }
+  const addListSection = (listKey: string, name: string, color?: string) => addSection(listKey, name, color)
   const renameListSection = (_listKey: string, sectionId: string, name: string) => { renameSection(sectionId, name) }
   const setListSectionColor = (_listKey: string, sectionId: string, color: string) => { setSectionColor(sectionId, color) }
   const deleteListSection = async (_listKey: string, sectionId: string) => {
@@ -943,6 +943,7 @@ export default function App() {
           }}
           customLists={customLists}
           sectionsByList={sectionsByList}
+          onAddSection={async (listKey, name) => await addListSection(listKey, name) || null}
           onConvertToShop={async () => {
             await shop.addItem(
               editingTodo.title,
@@ -2198,7 +2199,7 @@ function MapPicker({ lat, lon, address, onPick, onClear, locations, onPickLocati
   )
 }
 
-function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose, onSave, onDelete, onConvertToTransport, customLists, sectionsByList, onConvertToShop, onConvertToPhoneCall }: {
+function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose, onSave, onDelete, onConvertToTransport, customLists, sectionsByList, onAddSection, onConvertToShop, onConvertToPhoneCall }: {
   todo: Todo; employees: Map<string, Employee>; locations: ReturnType<typeof useLocations>; thomasId?: string; mariaId?: string
   onClose: () => void
   onSave: (updates: Partial<Todo>) => Promise<any>
@@ -2206,9 +2207,12 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
   onConvertToTransport?: () => Promise<any>
   customLists?: { id: string; name: string; color: string }[]
   sectionsByList?: Record<string, { id: string; name: string; color?: string | null }[]>
+  onAddSection?: (listKey: string, name: string) => Promise<string | null>
   onConvertToShop?: () => Promise<any>
   onConvertToPhoneCall?: () => Promise<any>
 }) {
+  const [addingSec, setAddingSec] = useState(false)
+  const [newSecName, setNewSecName] = useState('')
   const [title, sT] = useState(todo.title)
   const [desc, sDe] = useState(todo.description || '')
   const [pri, sP] = useState(todo.priority || 'Normal')
@@ -2330,6 +2334,14 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
                   <option key={`${key}-${s.id}`} value={`${key}${SEC_SEP}${s.id}`}>&nbsp;&nbsp;&nbsp;↳ {s.name}</option>
                 )),
               ]
+              const canAddSection = onAddSection && baseListKey !== 'none'
+              const submitNewSection = async () => {
+                if (!newSecName.trim() || !onAddSection) return
+                const newId = await onAddSection(baseListKey, newSecName.trim())
+                if (newId) sSec(newId)
+                setNewSecName('')
+                setAddingSec(false)
+              }
               return (
                 <>
                   <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til liste / sektion" />
@@ -2353,6 +2365,33 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
                       </optgroup>
                     )}
                   </select>
+                  {canAddSection && (
+                    <div style={{ marginTop:6 }}>
+                      {addingSec ? (
+                        <div style={{ display:'flex', gap:6 }}>
+                          <input autoFocus value={newSecName} onChange={e => setNewSecName(e.target.value)}
+                            placeholder="Navn på ny sektion..."
+                            onBlur={() => { if (!newSecName.trim()) setAddingSec(false) }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') { e.preventDefault(); submitNewSection() }
+                              else if (e.key === 'Escape') { e.preventDefault(); setNewSecName(''); setAddingSec(false) }
+                            }}
+                            style={{ ...inputStyle, fontSize:12, flex:1 }} />
+                          <button type="button" onClick={submitNewSection} disabled={!newSecName.trim()} style={{ padding:'6px 12px', borderRadius:6, border:'none', background:C.red, color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer', textTransform:'uppercase', opacity:newSecName.trim()?1:0.35 }}>Opret</button>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => setAddingSec(true)} style={{
+                          display:'inline-flex', alignItems:'center', gap:6, padding:'4px 10px', borderRadius:6,
+                          border:`1px solid ${C.border}`, background:'transparent', color:C.textMuted,
+                          fontSize:10, fontWeight:600, cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.04em',
+                        }}
+                          onMouseEnter={e => { e.currentTarget.style.borderColor = C.red+'60'; e.currentTarget.style.color = C.red }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMuted }}>
+                          <Plus style={{ width:10, height:10 }} /> Ny sektion i valgte liste
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </>
               )
             })()}
