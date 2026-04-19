@@ -2325,42 +2325,36 @@ function EditTodoModal({ todo, employees, locations, thomasId, mariaId, onClose,
             />
 
             {/* ── SECTION: Flyt til liste ── */}
-            <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til liste" />
-            <select value={baseListKey} onChange={e => moveTo(e.target.value)} style={{ ...inputStyle, fontSize:12 }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
-              <optgroup label="Personer">
-                <option value="thomas">TODO {employees.get(thomasId || '')?.navn || 'Thomas'}</option>
-                <option value="maria">TODO {employees.get(mariaId || '')?.navn || 'Maria'}</option>
-                <option value="crew">CREW</option>
-                <option value="none">Ikke tildelt</option>
-              </optgroup>
-              <optgroup label="Lister">
-                <option value="CODE">CODE</option>
-                <option value="REPAIR">Repareres</option>
-                {customLists && customLists.map(l => (
-                  <option key={l.id} value={`custom:${l.id}`}>{l.name}</option>
-                ))}
-              </optgroup>
-              {(onConvertToShop || onConvertToPhoneCall || onConvertToTransport) && (
-                <optgroup label="Konvertér (flytter til anden tabel)">
-                  {onConvertToShop && <option value="__shop__">→ Indkøb</option>}
-                  {onConvertToPhoneCall && <option value="__phone__">→ Ringes til</option>}
-                  {onConvertToTransport && <option value="__transport__">→ Øst / Vest</option>}
-                </optgroup>
-              )}
-            </select>
-
-            {/* ── SECTION: Flyt til sektion ── */}
             {(() => {
-              const sections = sectionsByList?.[baseListKey] || []
-              if (sections.length === 0) return null
+              const secsFor = (key: string) => sectionsByList?.[key] || []
+              const listWithSections = (key: string, label: string) => [
+                <option key={key} value={key}>{label}</option>,
+                ...secsFor(key).map(s => (
+                  <option key={`${key}-${s.id}`} value={`${key}${SEC_SEP}${s.id}`}>&nbsp;&nbsp;&nbsp;↳ {s.name}</option>
+                )),
+              ]
               return (
                 <>
-                  <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til sektion" />
-                  <select value={sectionId || ''} onChange={e => sSec(e.target.value || null)} style={{ ...inputStyle, fontSize:12 }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
-                    <option value="">Ingen sektion</option>
-                    {sections.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
+                  <SectionLabel icon={<ArrowRight style={{ width:12, height:12 }} />} label="Flyt til liste / sektion" />
+                  <select value={currentCol} onChange={e => moveTo(e.target.value)} style={{ ...inputStyle, fontSize:12 }} onFocus={inputFocus as any} onBlur={inputBlur as any}>
+                    <optgroup label="Personer">
+                      {listWithSections('thomas', `TODO ${employees.get(thomasId || '')?.navn || 'Thomas'}`)}
+                      {listWithSections('maria', `TODO ${employees.get(mariaId || '')?.navn || 'Maria'}`)}
+                      {listWithSections('crew', 'CREW')}
+                      <option value="none">Ikke tildelt</option>
+                    </optgroup>
+                    <optgroup label="Lister">
+                      {listWithSections('CODE', 'CODE')}
+                      {listWithSections('REPAIR', 'Repareres')}
+                      {customLists && customLists.flatMap(l => listWithSections(`custom:${l.id}`, l.name))}
+                    </optgroup>
+                    {(onConvertToShop || onConvertToPhoneCall || onConvertToTransport) && (
+                      <optgroup label="Konvertér (flytter til anden tabel)">
+                        {onConvertToShop && <option value="__shop__">→ Indkøb</option>}
+                        {onConvertToPhoneCall && <option value="__phone__">→ Ringes til</option>}
+                        {onConvertToTransport && <option value="__transport__">→ Øst / Vest</option>}
+                      </optgroup>
+                    )}
                   </select>
                 </>
               )
