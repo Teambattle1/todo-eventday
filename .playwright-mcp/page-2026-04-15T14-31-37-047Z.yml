@@ -1,0 +1,86 @@
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - img [ref=e6]
+    - generic [ref=e8]: 9 overskredne opgaver
+    - generic [ref=e9]:
+      - generic [ref=e10]: tablets skal tjekkes
+      - generic [ref=e11]: Tøj til Thomas
+      - generic [ref=e12]: Batterier i RC biler+ ned
+  - generic [ref=e13]:
+    - complementary [ref=e14]:
+      - generic [ref=e15]:
+        - button "Quickcall" [ref=e16] [cursor=pointer]:
+          - img [ref=e18]
+          - text: Quickcall
+        - button "Tilføj opgave" [ref=e20] [cursor=pointer]:
+          - img [ref=e22]
+          - text: Tilføj opgave
+      - navigation [ref=e23]:
+        - button "I dag ! 11" [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+          - generic [ref=e28]: I dag
+          - generic [ref=e29]: "! 11"
+        - button "Denne uge ! 13" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+          - generic [ref=e34]: Denne uge
+          - generic [ref=e35]: "! 13"
+        - button "Kommende 4" [ref=e37] [cursor=pointer]:
+          - img [ref=e38]
+          - generic [ref=e40]: Kommende
+          - generic [ref=e41]: "4"
+        - generic [ref=e42]: Personer
+        - button "Thomas" [ref=e44] [cursor=pointer]:
+          - generic [ref=e46]: Thomas
+        - button "Maria" [ref=e48] [cursor=pointer]:
+          - generic [ref=e50]: Maria
+        - button "Crew ! 27" [ref=e52] [cursor=pointer]:
+          - generic [ref=e54]: Crew
+          - generic [ref=e55]: "! 27"
+        - generic [ref=e56]: Lister
+        - button "Ringes til" [ref=e58] [cursor=pointer]:
+          - generic [ref=e60]: Ringes til
+        - button "Code 10" [ref=e62] [cursor=pointer]:
+          - generic [ref=e64]: Code
+          - generic [ref=e65]: "10"
+        - button "Repareres 2" [ref=e67] [cursor=pointer]:
+          - generic [ref=e69]: Repareres
+          - generic [ref=e70]: "2"
+        - button "Øst / Vest" [ref=e72] [cursor=pointer]:
+          - generic [ref=e74]: Øst / Vest
+        - button "Indkøb" [ref=e76] [cursor=pointer]:
+          - generic [ref=e78]: Indkøb
+        - button "Skilte mangler" [ref=e80] [cursor=pointer]:
+          - generic [ref=e82]: Skilte mangler
+        - button "Sessions" [ref=e84] [cursor=pointer]:
+          - generic [ref=e86]: Sessions
+        - button "Opret ny liste" [ref=e87] [cursor=pointer]:
+          - img [ref=e88]
+          - text: Opret ny liste
+        - generic [ref=e89]: Værktøjer
+        - button "Idéer 10" [ref=e91] [cursor=pointer]:
+          - img [ref=e92]
+          - generic [ref=e94]: Idéer
+          - generic [ref=e95]: "10"
+        - button "Print Øst/Vest" [ref=e96] [cursor=pointer]:
+          - img [ref=e97]
+          - generic [ref=e101]: Print Øst/Vest
+      - generic [ref=e102]:
+        - generic "Forbundet" [ref=e103]
+        - generic [ref=e104]: Live
+        - generic [ref=e106]: GPS
+    - generic [ref=e107]:
+      - banner [ref=e108]:
+        - heading "TODO Thomas" [level=1] [ref=e109]
+        - generic [ref=e110]: "0"
+        - generic [ref=e111]: UGE 16
+        - generic [ref=e113]:
+          - generic [ref=e114]: "16.31"
+          - generic [ref=e115]: onsdag 15. april
+      - generic [ref=e117]:
+        - button "Tilføj opgave" [ref=e118] [cursor=pointer]:
+          - img [ref=e119]
+          - text: Tilføj opgave
+        - button "Ny sektion" [ref=e121] [cursor=pointer]:
+          - img [ref=e122]
+          - text: Ny sektion
+        - generic [ref=e123]: Ingen aktive opgaver
