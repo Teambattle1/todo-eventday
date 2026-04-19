@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback, Fragment, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useQueryState, parseAsString } from 'nuqs'
 import { useTodos } from './hooks/useTodos'
 import { useEmployees } from './hooks/useEmployees'
@@ -13,7 +13,7 @@ import { useGeofence } from './hooks/useGeofence'
 import { useWakeLock } from './hooks/useWakeLock'
 import { supabase } from './lib/supabase'
 import { useLocations } from './hooks/useLocations'
-import type { Todo, Employee, ShoppingItem, PhoneCall, TransportItem, Skilt, SessionJob } from './lib/types'
+import type { Todo, Employee, ShoppingItem, PhoneCall, TransportItem, SessionJob } from './lib/types'
 import {
   getPriorityColor, getPriorityOrder, getPriorityLabel,
   isIdeaCategory, getCategoryLabel, parseDescription,
@@ -22,7 +22,7 @@ import {
 import {
   Plus, Check, Trash2, ChevronDown, ChevronUp, ChevronRight, AlertTriangle, QrCode,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
-  Navigation, XCircle, ChevronLeft, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
+  Navigation, XCircle, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
   Mic, MicOff, Keyboard, Bell, Search, Users, ClipboardList, Settings,
 } from 'lucide-react'
 
@@ -1323,7 +1323,6 @@ function DuePill({ date }: { date:string|null }) {
 
 /* ━━━ Date / DateTime Picker with weekend highlighting ━━━ */
 const DAY_NAMES = ['Ma', 'Ti', 'On', 'To', 'Fr', 'Lø', 'Sø']
-const MONTH_NAMES = ['Januar','Februar','Marts','April','Maj','Juni','Juli','August','September','Oktober','November','December']
 const MONTH_NAMES_SHORT = ['jan.','feb.','mar.','apr.','maj','jun.','jul.','aug.','sep.','okt.','nov.','dec.']
 
 function DatePicker({ value, onChange, showTime, style: wrapStyle }: { value: string; onChange: (v: string) => void; showTime?: boolean; style?: React.CSSProperties }) {
@@ -1376,8 +1375,6 @@ function DatePicker({ value, onChange, showTime, style: wrapStyle }: { value: st
 
   const prevMonth = () => setViewDate(v => v.month === 0 ? { year: v.year - 1, month: 11 } : { year: v.year, month: v.month - 1 })
   const nextMonth = () => setViewDate(v => v.month === 11 ? { year: v.year + 1, month: 0 } : { year: v.year, month: v.month + 1 })
-  const prevYear = () => setViewDate(v => ({ ...v, year: v.year - 1 }))
-  const nextYear = () => setViewDate(v => ({ ...v, year: v.year + 1 }))
 
   const emit = (d: string, h?: number, m?: number) => {
     if (!showTime) { onChange(d); return }
@@ -2792,7 +2789,7 @@ function EditShoppingModal({ item, employees, locations, thomasId, mariaId, onCl
 
 /* ━━━ Phone Call Card ━━━ */
 /* ━━━ Skilte View ━━━ */
-const SKILT_COLORS = [
+const SKILT_COLORS: readonly { key: string; label: string; hex: string; border?: boolean }[] = [
   { key:'hvid', label:'Hvid', hex:'#ffffff', border:true },
   { key:'blå', label:'Blå', hex:'#3b82f6' },
   { key:'gul', label:'Gul', hex:'#eab308' },
@@ -2803,7 +2800,7 @@ const SKILT_COLORS = [
   { key:'sort', label:'Sort', hex:'#171717', border:true },
   { key:'pink', label:'Pink', hex:'#ec4899' },
   { key:'grå', label:'Grå', hex:'#6b7280' },
-] as const
+]
 
 function skiltHex(key: string|null) { return SKILT_COLORS.find(c => c.key === key)?.hex || '#6b7280' }
 function skiltBorder(key: string|null) { return SKILT_COLORS.find(c => c.key === key)?.border || false }
@@ -3471,7 +3468,7 @@ function formatDateShort(d: Date): string {
   return d.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' })
 }
 
-function SessionsView({ sessions, loading, todos, employees, thomasEmp, mariaEmp, addTodo, updateTodo, deleteTodo, activities, templates, templatesByActivity, addTemplate, updateTemplate, deleteTemplate }: {
+function SessionsView({ sessions, loading, todos, employees, thomasEmp, mariaEmp, addTodo, updateTodo, deleteTodo, activities, templatesByActivity, addTemplate, deleteTemplate }: {
   sessions: SessionJob[]
   loading: boolean
   todos: Todo[]
