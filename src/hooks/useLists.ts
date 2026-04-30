@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
-export type CustomList = { id: string; name: string; color: string; sort_order?: number }
+export type PersonView = 'thomas' | 'maria' | 'crew'
+export type CustomList = { id: string; name: string; color: string; sort_order?: number; visible_in_views?: PersonView[] }
 export type ListSection = { id: string; list_key: string; name: string; color?: string | null; sort_order?: number }
 
 /**
@@ -84,6 +85,11 @@ export function useLists() {
     await supabase.from('custom_lists').update({ name: name.trim(), updated_at: new Date().toISOString() }).eq('id', id)
   }, [])
 
+  const setListVisibleInViews = useCallback(async (id: string, views: PersonView[]) => {
+    setCustomLists(prev => prev.map(l => l.id === id ? { ...l, visible_in_views: views } : l))
+    await supabase.from('custom_lists').update({ visible_in_views: views, updated_at: new Date().toISOString() }).eq('id', id)
+  }, [])
+
   const deleteCustomList = useCallback(async (id: string) => {
     setCustomLists(prev => prev.filter(l => l.id !== id))
     // Also cascade delete sections for this list
@@ -128,7 +134,7 @@ export function useLists() {
 
   return {
     customLists, sections, sectionsByList, loading,
-    addCustomList, renameCustomList, deleteCustomList,
+    addCustomList, renameCustomList, deleteCustomList, setListVisibleInViews,
     addSection, renameSection, setSectionColor, deleteSection,
   }
 }

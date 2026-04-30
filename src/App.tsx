@@ -13,6 +13,7 @@ import { useGeofence } from './hooks/useGeofence'
 import { useWakeLock } from './hooks/useWakeLock'
 import { supabase } from './lib/supabase'
 import { useLocations } from './hooks/useLocations'
+import { useVenueByCode } from './hooks/useVenueByCode'
 import type { Todo, Employee, ShoppingItem, PhoneCall, TransportItem, SessionJob } from './lib/types'
 import {
   getPriorityColor, getPriorityOrder, getPriorityLabel,
@@ -23,7 +24,7 @@ import {
   Plus, Check, Trash2, ChevronDown, ChevronUp, ChevronRight, AlertTriangle, QrCode,
   ExternalLink, MapPin, Calendar, Loader2, X, Lightbulb, Flame, Pencil,
   Navigation, XCircle, ArrowRight, ShoppingCart, Image, Phone, Truck, ArrowLeft, Printer, User, Briefcase,
-  Mic, MicOff, Keyboard, Bell, Search, Users, ClipboardList, Settings,
+  Mic, MicOff, Keyboard, Bell, Search, Users, ClipboardList, Settings, Eye, EyeOff,
 } from 'lucide-react'
 
 /* ━━━ Color Tokens ━━━ */
@@ -156,6 +157,10 @@ export default function App() {
     return t
   }, [active])
 
+  // Custom lists + list sections — persisted in Supabase (declared early so person-task memos can read visible_in_views)
+  const { customLists, sectionsByList, addCustomList: addCustomListDb, renameCustomList: renameCustomListDb, deleteCustomList: deleteCustomListDb,
+          setListVisibleInViews, addSection, renameSection, setSectionColor, deleteSection } = useLists()
+
   // Find Thomas and Maria employee IDs
   const thomasEmp = useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('thomas')), [employees])
   const mariaEmp = useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('maria')), [employees])
@@ -163,19 +168,28 @@ export default function App() {
   void useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('jesper')), [employees])
   void useMemo(() => [...employees.values()].find(e => e.navn.toLowerCase().includes('steen')), [employees])
 
+  // Per-list visibility lookup for person views — defaults to all three views when not set
+  const isListVisibleIn = useCallback((category: string | null | undefined, view: 'thomas' | 'maria' | 'crew') => {
+    if (!category?.startsWith('custom:')) return true
+    const list = customLists.find(l => `custom:${l.id}` === category)
+    const views = list?.visible_in_views ?? ['thomas', 'maria', 'crew']
+    return views.includes(view)
+  }, [customLists])
+
   // Person views show ALL active tasks assigned to that person, regardless of category (CODE, REPAIR, custom, etc.)
-  const thomasTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to === thomasEmp?.id).sort((a,b) => {
+  // Tasks belonging to a custom list hidden from a person view are filtered out here.
+  const thomasTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to === thomasEmp?.id && isListVisibleIn(t.category, 'thomas')).sort((a,b) => {
     const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
     return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  }), [active, thomasEmp])
-  const mariaTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to === mariaEmp?.id).sort((a,b) => {
+  }), [active, thomasEmp, isListVisibleIn])
+  const mariaTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to === mariaEmp?.id && isListVisibleIn(t.category, 'maria')).sort((a,b) => {
     const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
     return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  }), [active, mariaEmp])
-  const crewTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id).sort((a,b) => {
+  }), [active, mariaEmp, isListVisibleIn])
+  const crewTasks = useMemo(() => active.filter(t => !isIdeaCategory(t.category) && t.assigned_to && t.assigned_to !== thomasEmp?.id && t.assigned_to !== mariaEmp?.id && isListVisibleIn(t.category, 'crew')).sort((a,b) => {
     const d = getPriorityOrder(a.priority) - getPriorityOrder(b.priority)
     return d !== 0 ? d : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  }), [active, thomasEmp, mariaEmp])
+  }), [active, thomasEmp, mariaEmp, isListVisibleIn])
   const personSectionCounts = useMemo(() => {
     const c: Record<string, number> = {}
     thomasTasks.forEach(t => { if (t.section_id) c[`thomas:${t.section_id}`] = (c[`thomas:${t.section_id}`] || 0) + 1 })
@@ -276,9 +290,6 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(winW >= 768)
   useEffect(() => { if (winW >= 768) setSidebarOpen(true) }, [winW])
 
-  // Custom lists + list sections — persisted in Supabase
-  const { customLists, sectionsByList, addCustomList: addCustomListDb, renameCustomList: renameCustomListDb, deleteCustomList: deleteCustomListDb,
-          addSection, renameSection, setSectionColor, deleteSection } = useLists()
   const [creatingList, setCreatingList] = useState(false)
   const addCustomList = (name: string, color: string) => { addCustomListDb(name, color) }
   const renameCustomList = (id: string, name: string) => { renameCustomListDb(id, name) }
@@ -529,6 +540,7 @@ export default function App() {
             customLists={customLists}
             customListCount={currentView.startsWith('custom:') ? (customListTasks.get(currentView.slice(7))?.length || 0) : 0}
             onRenameCustomList={renameCustomList}
+            onSetListVisibleInViews={setListVisibleInViews}
             titleOverride={(() => {
               const m = /^(thomas|maria):sec:(.+)$/.exec(currentView)
               if (!m) return undefined
@@ -1575,6 +1587,8 @@ function TaskCard({ t, emp, onDone, onDel, onClick, hideCategoryTag }: { t:Todo;
   const od = isOverdue(t.due_date)
   const pc = getPriorityColor(t.priority)
   const title = decodeHtmlEntities(t.title)
+  const venueByCode = useVenueByCode()
+  const venueName = t.location ? venueByCode.get(t.location) : null
 
   return (
     <div
@@ -1611,6 +1625,15 @@ function TaskCard({ t, emp, onDone, onDel, onClick, hideCategoryTag }: { t:Todo;
           )}
           {t.category?.startsWith('custom:') && (
             <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:C.purple+'18', color:C.purple, letterSpacing:'0.04em' }}>liste</span>
+          )}
+          {venueName && (
+            <span
+              title={`Fra venue: ${venueName} (${t.location})`}
+              style={{ display:'inline-flex', alignItems:'center', gap:3, fontSize:9, fontWeight:700, padding:'1px 5px 1px 4px', borderRadius:4, background:C.amber+'1f', color:'#fff', letterSpacing:'0.04em' }}
+            >
+              <MapPin style={{ width:9, height:9, color:'#fff', strokeWidth:2.5 }} />
+              {venueName}
+            </span>
           )}
         </div>
       </div>
@@ -4303,23 +4326,26 @@ function getIsoWeek(date: Date): number {
 }
 
 /* ━━━ Main View Header ━━━ */
-function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName, customLists, customListCount, onRenameCustomList, titleOverride, countOverride }: {
+function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomasName, mariaName, customLists, customListCount, onRenameCustomList, onSetListVisibleInViews, titleOverride, countOverride }: {
   currentView: string
   isMobile: boolean
   onToggleSidebar: () => void
   counts: Record<BuiltInViewKey, number>
   thomasName: string
   mariaName: string
-  customLists?: { id: string; name: string; color: string }[]
+  customLists?: { id: string; name: string; color: string; visible_in_views?: ('thomas' | 'maria' | 'crew')[] }[]
   customListCount?: number
   onRenameCustomList?: (id: string, name: string) => void
+  onSetListVisibleInViews?: (id: string, views: ('thomas' | 'maria' | 'crew')[]) => void
   titleOverride?: string
   countOverride?: number
 }) {
   const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState('')
+  const [visibilityOpen, setVisibilityOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+  useEffect(() => { setVisibilityOpen(false) }, [currentView])
   const TITLES: Record<BuiltInViewKey, string> = {
     today: 'I dag',
     week: 'Denne uge',
@@ -4388,6 +4414,50 @@ function MainViewHeader({ currentView, isMobile, onToggleSidebar, counts, thomas
         </h1>
       )}
       <span style={{ fontSize:12, fontWeight:600, color:C.textMuted, background:C.card, padding:'2px 10px', borderRadius:12 }}>{count}</span>
+      {isCustom && customListId && onSetListVisibleInViews && (() => {
+        const list = customLists?.find(l => l.id === customListId)
+        const views = list?.visible_in_views ?? ['thomas', 'maria', 'crew']
+        const allOn = views.length === 3
+        const toggle = (v: 'thomas' | 'maria' | 'crew') => {
+          const next = views.includes(v) ? views.filter(x => x !== v) : [...views, v]
+          onSetListVisibleInViews(customListId, next as any)
+        }
+        return (
+          <div style={{ position:'relative' }}>
+            <button
+              onClick={() => setVisibilityOpen(o => !o)}
+              title="Vælg hvor listen skal vises"
+              style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 10px', borderRadius:10, border:`1px solid ${allOn ? C.border : C.amber+'60'}`, background: allOn ? C.input : C.amber+'15', color: allOn ? C.textSec : C.amber, cursor:'pointer', fontSize:11, fontWeight:700, letterSpacing:'0.04em' }}
+            >
+              {allOn ? <Eye style={{ width:13, height:13 }} /> : <EyeOff style={{ width:13, height:13 }} />}
+              <span>{allOn ? 'VIST OVERALT' : views.length === 0 ? 'SKJULT' : `VIST: ${views.map(v => v[0].toUpperCase()).join('/')}`}</span>
+            </button>
+            {visibilityOpen && (
+              <>
+                <div onClick={() => setVisibilityOpen(false)} style={{ position:'fixed', inset:0, zIndex:50 }} />
+                <div style={{ position:'absolute', top:'calc(100% + 6px)', left:0, zIndex:51, minWidth:220, background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:10, boxShadow:'0 8px 24px rgba(0,0,0,0.4)' }}>
+                  <div style={{ fontSize:10, fontWeight:700, color:C.textMuted, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Vis listens opgaver på</div>
+                  {(['thomas', 'maria', 'crew'] as const).map(v => {
+                    const on = views.includes(v)
+                    const label = v === 'thomas' ? `TODO ${thomasName}` : v === 'maria' ? `TODO ${mariaName}` : 'Crew'
+                    return (
+                      <label key={v} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 6px', borderRadius:6, cursor:'pointer', color: on ? C.text : C.textMuted, background: on ? C.input : 'transparent' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = C.input }}
+                        onMouseLeave={e => { e.currentTarget.style.background = on ? C.input : 'transparent' }}>
+                        <input type="checkbox" checked={on} onChange={() => toggle(v)} style={{ accentColor: C.blue, width:14, height:14 }} />
+                        <span style={{ fontSize:13, fontWeight:600 }}>{label}</span>
+                      </label>
+                    )
+                  })}
+                  <div style={{ fontSize:10, color:C.textMuted, marginTop:6, lineHeight:1.4 }}>
+                    Slå fra hvis listens opgaver ikke skal dukke op på personens TODO selvom de er tildelt vedkommende.
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )
+      })()}
       <span style={{ fontSize:11, fontWeight:700, color:C.amber, background:C.amber+'15', border:`1px solid ${C.amber}35`, padding:'3px 10px', borderRadius:12, letterSpacing:'0.04em' }}>UGE {weekNo}</span>
       <a href="https://teambattle1.github.io/QR/" target="_blank" rel="noopener noreferrer"
          title="QR code generator & scanner"
