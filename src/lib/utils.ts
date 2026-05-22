@@ -123,6 +123,26 @@ export function haversineDistance(
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 }
 
+// Find første URL i en eller flere tekstfelter — bruges af "Gå til"-knap i todo-cards.
+// Matcher http(s)://… og bare-domæner som www.example.com / example.com/path.
+// Returnerer en normaliseret URL (med https:// hvis ikke angivet) eller null.
+const URL_REGEX = /(https?:\/\/[^\s<>"')]+|www\.[^\s<>"')]+|[a-z0-9-]+\.(?:com|dk|net|org|io|app|co|eu|de|se|no|uk|info|biz)(?:\/[^\s<>"')]*)?)/i
+
+export function extractFirstUrl(...fields: (string | null | undefined)[]): string | null {
+  for (const f of fields) {
+    if (!f) continue
+    const m = f.match(URL_REGEX)
+    if (m) {
+      let url = m[0]
+      // Trim trailing punctuation som ofte hænger på i prosatekst
+      url = url.replace(/[.,;:!?)\]}>"']+$/, '')
+      if (!/^https?:\/\//i.test(url)) url = 'https://' + url
+      return url
+    }
+  }
+  return null
+}
+
 // Deterministisk farve fra string
 export function hashColor(str: string): string {
   let hash = 0

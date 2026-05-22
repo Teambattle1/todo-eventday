@@ -5,7 +5,8 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(git add:*)",
       "Bash(git commit -m ':*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "mcp__7bebd5f0-7d88-4fc0-b25a-0acd5e7e6f66__execute_sql"
     ]
   }
 }

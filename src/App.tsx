@@ -19,6 +19,7 @@ import {
   getPriorityColor, getPriorityOrder, getPriorityLabel,
   isIdeaCategory, getCategoryLabel, parseDescription,
   decodeHtmlEntities, isOverdue, getInitials, hashColor,
+  extractFirstUrl,
 } from './lib/utils'
 import {
   Plus, Check, Trash2, ChevronDown, ChevronUp, ChevronRight, AlertTriangle, QrCode,
@@ -819,6 +820,7 @@ export default function App() {
                     </Collapse>
                   </div>
                 )}
+                <PrintableTransportChecklist toWest={toWest} toEast={toEast} employees={employees} />
               </>)}
 
               {/* Shopping */}
@@ -1582,6 +1584,41 @@ function DatePicker({ value, onChange, showTime, style: wrapStyle }: { value: st
   )
 }
 
+/* ━━━ "Gå til"-knap (vises på cards hvor titel/note/beskrivelse indeholder et link) ━━━ */
+function GoToLinkBtn({ url, compact }: { url: string; compact?: boolean }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={e => e.stopPropagation()}
+      title={`Åbn ${url}`}
+      style={{
+        display:'inline-flex', alignItems:'center', gap:4,
+        padding: compact ? '2px 7px' : '3px 9px',
+        borderRadius:6,
+        fontSize: compact ? 9 : 10,
+        fontWeight:700,
+        background: C.cyan+'18',
+        color: C.cyan,
+        border:`1px solid ${C.cyan}40`,
+        textDecoration:'none',
+        cursor:'pointer',
+        whiteSpace:'nowrap',
+        textTransform:'uppercase',
+        letterSpacing:'0.04em',
+        transition:'all 0.15s',
+        flexShrink:0,
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = C.cyan+'30'; e.currentTarget.style.borderColor = C.cyan }}
+      onMouseLeave={e => { e.currentTarget.style.background = C.cyan+'18'; e.currentTarget.style.borderColor = C.cyan+'40' }}
+    >
+      <ExternalLink style={{ width: compact ? 9 : 10, height: compact ? 9 : 10, color:C.cyan }} />
+      Gå til
+    </a>
+  )
+}
+
 /* ━━━ Task Card (compact) ━━━ */
 function TaskCard({ t, emp, onDone, onDel, onClick, hideCategoryTag }: { t:Todo; emp?:Employee; onDone:()=>void; onDel:()=>void; onClick?:()=>void; hideCategoryTag?:boolean }) {
   const od = isOverdue(t.due_date)
@@ -1589,6 +1626,7 @@ function TaskCard({ t, emp, onDone, onDel, onClick, hideCategoryTag }: { t:Todo;
   const title = decodeHtmlEntities(t.title)
   const venueByCode = useVenueByCode()
   const venueName = t.location ? venueByCode.get(t.location) : null
+  const linkUrl = extractFirstUrl(t.title, parseDescription(t.description).text, parseDescription(t.description).url)
 
   return (
     <div
@@ -1638,6 +1676,7 @@ function TaskCard({ t, emp, onDone, onDel, onClick, hideCategoryTag }: { t:Todo;
         </div>
       </div>
 
+      {linkUrl && <GoToLinkBtn url={linkUrl} />}
       {emp && <Avatar name={emp.navn} id={emp.id} sz={22} />}
       <button onClick={e => { e.stopPropagation(); onDel() }} style={{ padding:2, borderRadius:4, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.25, transition:'all 0.15s', flexShrink:0 }}
         onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = C.red }}
@@ -1734,6 +1773,7 @@ function IdeaRow({ t, emp, onOpen }: { t:Todo; emp?:Employee; onOpen:(t:Todo)=>v
   const title = decodeHtmlEntities(t.title)
   const desc = parseDescription(t.description)
   const [ie, sIe] = useState(false)
+  const linkUrl = extractFirstUrl(desc.url, t.title, desc.text)
 
   return (
     <div onClick={() => onOpen(t)} style={{ display:'flex', borderRadius:8, border:`1px solid ${C.border}`, background:C.card, overflow:'hidden', transition:'background 0.15s', cursor:'pointer' }}
@@ -1751,6 +1791,7 @@ function IdeaRow({ t, emp, onOpen }: { t:Todo; emp?:Employee; onOpen:(t:Todo)=>v
       <div style={{ flex:1, padding:'8px 12px', minWidth:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
           <span style={{ fontSize:12, fontWeight:600, color:C.text, flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{title}</span>
+          {linkUrl && <GoToLinkBtn url={linkUrl} compact />}
           {emp && <Avatar name={emp.navn} id={emp.id} sz={20} />}
         </div>
         {desc.text && <div style={{ fontSize:10, color:C.textSec, marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{desc.text}</div>}
@@ -1758,7 +1799,6 @@ function IdeaRow({ t, emp, onOpen }: { t:Todo; emp?:Employee; onOpen:(t:Todo)=>v
           {desc.tags?.slice(0,3).map((tag,i) => (
             <span key={i} style={{ fontSize:9, fontWeight:500, padding:'1px 5px', borderRadius:4, background:C.purple+'14', color:C.purple }}>{tag}</span>
           ))}
-          {desc.url && <span style={{ fontSize:9, color:C.textMuted, display:'inline-flex', alignItems:'center', gap:2 }}><ExternalLink style={{ width:8, height:8 }} />Link</span>}
         </div>
       </div>
     </div>
@@ -1769,6 +1809,7 @@ function IdeaRow({ t, emp, onOpen }: { t:Todo; emp?:Employee; onOpen:(t:Todo)=>v
 function ShopCard({ item, done, onCheck, onDel, onClick, emp }: { item:ShoppingItem; done?:boolean; onCheck:()=>void; onDel:()=>void; onClick?:()=>void; emp?:Employee }) {
   const borderColor = done ? C.border : item.urgent ? C.red+'40' : C.green+'25'
   const bg = done ? 'transparent' : item.urgent ? C.red+'06' : C.card
+  const linkUrl = extractFirstUrl(item.url, item.title, item.note)
   return (
     <div onClick={onClick} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:8, background:bg, border:`1px solid ${borderColor}`, opacity: done ? 0.45 : 1, transition:'all 0.15s', cursor: onClick ? 'pointer' : 'default' }}
       onMouseEnter={e => { if(onClick && !done) e.currentTarget.style.background = C.cardHover }}
@@ -1789,8 +1830,8 @@ function ShopCard({ item, done, onCheck, onDel, onClick, emp }: { item:ShoppingI
           {item.geo_address && <span style={{ display:'inline-flex', alignItems:'center', gap:2, fontSize:10, color:C.cyan }}><MapPin style={{ width:9, height:9 }} />{item.geo_address.slice(0,20)}</span>}
         </div>
       </div>
+      {linkUrl && <GoToLinkBtn url={linkUrl} />}
       {emp && <Avatar name={emp.navn} id={emp.id} sz={22} />}
-      {item.url && <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ color:C.textMuted, transition:'color 0.15s' }} onClick={e=>e.stopPropagation()} onMouseEnter={e=>e.currentTarget.style.color=C.green} onMouseLeave={e=>e.currentTarget.style.color=C.textMuted}><ExternalLink style={{ width:13, height:13 }} /></a>}
       <button onClick={e => { e.stopPropagation(); onDel() }} style={{ padding:2, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.25, transition:'all 0.15s' }}
         onMouseEnter={e => { e.currentTarget.style.opacity='1'; e.currentTarget.style.color=C.red }}
         onMouseLeave={e => { e.currentTarget.style.opacity='0.25'; e.currentTarget.style.color=C.textMuted }}>
@@ -2932,6 +2973,7 @@ function SkilteView({ skilte }: { skilte: ReturnType<typeof useSkilte> }) {
 function PhoneCallCard({ call, done, onCheck, onDel, onClick, emp }: { call:PhoneCall; done?:boolean; onCheck:()=>void; onDel:()=>void; onClick?:()=>void; emp?:Employee }) {
   const borderColor = done ? C.border : call.urgent ? C.red+'40' : C.amber+'25'
   const bg = done ? 'transparent' : call.urgent ? C.red+'06' : C.card
+  const linkUrl = extractFirstUrl(call.note, call.navn, call.firma)
   return (
     <div onClick={onClick} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', borderRadius:8, background:bg, border:`1px solid ${borderColor}`, opacity: done ? 0.45 : 1, transition:'all 0.15s', cursor: onClick ? 'pointer' : 'default' }}
       onMouseEnter={e => { if(onClick && !done) e.currentTarget.style.background = C.cardHover }}
@@ -2956,6 +2998,7 @@ function PhoneCallCard({ call, done, onCheck, onDel, onClick, emp }: { call:Phon
           <span style={{ fontSize:9, color:C.textMuted, opacity:0.5, marginLeft:'auto', whiteSpace:'nowrap' }}>{new Date(call.created_at).toLocaleDateString('da-DK',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span>
         </div>
       </div>
+      {linkUrl && <GoToLinkBtn url={linkUrl} />}
       {emp && <Avatar name={emp.navn} id={emp.id} sz={22} />}
       <button onClick={e => { e.stopPropagation(); onDel() }} style={{ padding:2, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.25, transition:'all 0.15s' }}
         onMouseEnter={e => { e.currentTarget.style.opacity='1'; e.currentTarget.style.color=C.red }}
@@ -3200,6 +3243,7 @@ function TransportCard({ item, done, onCheck, onDel, onClick, emp }: { item:Tran
   const isWest = item.direction === 'east_to_west'
   const dirColor = isWest ? C.amber : C.blue
   const bg = done ? 'transparent' : C.card
+  const linkUrl = extractFirstUrl(item.title, item.note)
   return (
     <div onClick={onClick} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:8, background:bg, border:`1px solid ${done ? C.border : dirColor+'25'}`, opacity: done ? 0.45 : 1, transition:'all 0.15s', cursor: onClick ? 'pointer' : 'default' }}
       onMouseEnter={e => { if(onClick && !done) e.currentTarget.style.background = C.cardHover }}
@@ -3211,6 +3255,7 @@ function TransportCard({ item, done, onCheck, onDel, onClick, emp }: { item:Tran
         <span style={{ fontSize:12, fontWeight:500, textDecoration: done ? 'line-through' : 'none', color: done ? C.textMuted : C.text }}>{item.title}</span>
         {item.note && <div style={{ fontSize:10, color:C.textMuted, marginTop:1 }}>{item.note}</div>}
       </div>
+      {linkUrl && <GoToLinkBtn url={linkUrl} compact />}
       {emp && <Avatar name={emp.navn} id={emp.id} sz={20} />}
       <button onClick={e => { e.stopPropagation(); onDel() }} style={{ padding:2, border:'none', background:'transparent', color:C.textMuted, cursor:'pointer', opacity:0.25, transition:'all 0.15s' }}
         onMouseEnter={e => { e.currentTarget.style.opacity='1'; e.currentTarget.style.color=C.red }}
@@ -3410,6 +3455,224 @@ function PrintTransportModal({ toWest, toEast, employees, onClose }: { toWest:Tr
         </div>
       </div>
     </div>
+  )
+}
+
+/* ━━━ Inline Printable Checklist (under Øst/Vest listen) ━━━ */
+const FREDERIKSSUND_ADDR = 'Elsenbakken 7, 3600 Frederikssund'
+const FREDERICIA_ADDR = 'Navervej 7, 7000 Fredericia'
+
+function PrintableTransportChecklist({ toWest, toEast, employees }: {
+  toWest: TransportItem[]
+  toEast: TransportItem[]
+  employees: Map<string, Employee>
+}) {
+  const today = new Date().toLocaleDateString('da-DK', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const handlePrint = () => window.print()
+
+  if (toWest.length === 0 && toEast.length === 0) return null
+
+  return (
+    <>
+      {/* Print-only CSS — skjuler resten af UI ved print, så kun checklisten kommer på papiret */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #printable-transport-checklist, #printable-transport-checklist * { visibility: visible !important; }
+          #printable-transport-checklist {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: #fff !important;
+            color: #000 !important;
+            padding: 16mm !important;
+            margin: 0 !important;
+            border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+          }
+          #printable-transport-checklist .pt-no-print { display: none !important; }
+          #printable-transport-checklist .pt-card,
+          #printable-transport-checklist .pt-row,
+          #printable-transport-checklist .pt-section {
+            background: #fff !important;
+            color: #000 !important;
+            border-color: #000 !important;
+          }
+          #printable-transport-checklist .pt-muted { color: #444 !important; }
+          #printable-transport-checklist .pt-checkbox { border-color: #000 !important; background: #fff !important; }
+          #printable-transport-checklist .pt-divider { background: #000 !important; }
+          @page { size: A4; margin: 0; }
+        }
+      `}</style>
+
+      <div style={{ marginTop: 32, paddingTop: 20, borderTop: `2px dashed ${C.border}` }} className="pt-no-print">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <ClipboardList style={{ width: 16, height: 16, color: C.cyan }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.cyan, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Printbar checkliste
+          </span>
+          <button
+            onClick={handlePrint}
+            style={{
+              marginLeft: 'auto',
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 14px', borderRadius: 8,
+              fontSize: 11, fontWeight: 700,
+              background: C.cyan, color: '#fff',
+              border: 'none', cursor: 'pointer',
+              textTransform: 'uppercase', letterSpacing: '0.04em',
+            }}
+          >
+            <Printer style={{ width: 12, height: 12, color: '#fff' }} /> PRINT
+          </button>
+        </div>
+      </div>
+
+      <div
+        id="printable-transport-checklist"
+        style={{
+          background: '#f7f4ea',
+          color: '#1a1a1a',
+          borderRadius: 10,
+          padding: 24,
+          border: `1px solid ${C.border}`,
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18, paddingBottom: 12, borderBottom: '2px solid #1a1a1a' }} className="pt-section">
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '0.04em' }}>
+              TRANSPORT CHECKLISTE
+            </div>
+            <div style={{ fontSize: 11, marginTop: 4, color: '#555', textTransform: 'capitalize' }} className="pt-muted">
+              {today}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right', fontSize: 10, color: '#555' }} className="pt-muted">
+            TODO by TEAMBATTLE
+          </div>
+        </div>
+
+        {/* TIL VEST */}
+        {toWest.length > 0 && (
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#ffe9c7', borderRadius: 6, marginBottom: 10 }} className="pt-section">
+              <ArrowRight style={{ width: 16, height: 16, color: '#a85b00' }} />
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#a85b00', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Til Vest ({toWest.length})
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12, fontSize: 11 }}>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 2, color: '#555', textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em' }} className="pt-muted">Fra</div>
+                <div style={{ fontWeight: 600 }}>{FREDERIKSSUND_ADDR}</div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 2, color: '#555', textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em' }} className="pt-muted">Til</div>
+                <div style={{ fontWeight: 600 }}>{FREDERICIA_ADDR}</div>
+              </div>
+            </div>
+            {toWest.map((i, idx) => {
+              const emp = i.assigned_to ? employees.get(i.assigned_to) : undefined
+              return (
+                <div
+                  key={i.id}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                    padding: '8px 10px',
+                    borderBottom: idx === toWest.length - 1 ? 'none' : '1px solid #d6cfb8',
+                  }}
+                  className="pt-row"
+                >
+                  <div
+                    style={{
+                      width: 18, height: 18, borderRadius: 4,
+                      border: '2px solid #1a1a1a', background: '#fff',
+                      flexShrink: 0, marginTop: 1,
+                    }}
+                    className="pt-checkbox"
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{i.title}</div>
+                    {i.note && <div style={{ fontSize: 10, color: '#555', marginTop: 2 }} className="pt-muted">{i.note}</div>}
+                  </div>
+                  {emp && <div style={{ fontSize: 10, color: '#555', fontStyle: 'italic', whiteSpace: 'nowrap' }} className="pt-muted">{emp.navn}</div>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* TIL ØST */}
+        {toEast.length > 0 && (
+          <div style={{ marginBottom: 22 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#d6eaff', borderRadius: 6, marginBottom: 10 }} className="pt-section">
+              <ArrowLeft style={{ width: 16, height: 16, color: '#0a4d8f' }} />
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#0a4d8f', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Til Øst ({toEast.length})
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12, fontSize: 11 }}>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 2, color: '#555', textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em' }} className="pt-muted">Fra</div>
+                <div style={{ fontWeight: 600 }}>{FREDERICIA_ADDR}</div>
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 2, color: '#555', textTransform: 'uppercase', fontSize: 9, letterSpacing: '0.08em' }} className="pt-muted">Til</div>
+                <div style={{ fontWeight: 600 }}>{FREDERIKSSUND_ADDR}</div>
+              </div>
+            </div>
+            {toEast.map((i, idx) => {
+              const emp = i.assigned_to ? employees.get(i.assigned_to) : undefined
+              return (
+                <div
+                  key={i.id}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                    padding: '8px 10px',
+                    borderBottom: idx === toEast.length - 1 ? 'none' : '1px solid #d6cfb8',
+                  }}
+                  className="pt-row"
+                >
+                  <div
+                    style={{
+                      width: 18, height: 18, borderRadius: 4,
+                      border: '2px solid #1a1a1a', background: '#fff',
+                      flexShrink: 0, marginTop: 1,
+                    }}
+                    className="pt-checkbox"
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{i.title}</div>
+                    {i.note && <div style={{ fontSize: 10, color: '#555', marginTop: 2 }} className="pt-muted">{i.note}</div>}
+                  </div>
+                  {emp && <div style={{ fontSize: 10, color: '#555', fontStyle: 'italic', whiteSpace: 'nowrap' }} className="pt-muted">{emp.navn}</div>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Sign-off */}
+        <div style={{ marginTop: 24, paddingTop: 14, borderTop: '1px solid #1a1a1a', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, fontSize: 10 }} className="pt-section">
+          <div>
+            <div style={{ color: '#555', textTransform: 'uppercase', fontWeight: 700, fontSize: 9, letterSpacing: '0.08em', marginBottom: 14 }} className="pt-muted">Læsset af</div>
+            <div style={{ borderBottom: '1px solid #1a1a1a', height: 18 }} className="pt-divider" />
+          </div>
+          <div>
+            <div style={{ color: '#555', textTransform: 'uppercase', fontWeight: 700, fontSize: 9, letterSpacing: '0.08em', marginBottom: 14 }} className="pt-muted">Modtaget af</div>
+            <div style={{ borderBottom: '1px solid #1a1a1a', height: 18 }} className="pt-divider" />
+          </div>
+          <div>
+            <div style={{ color: '#555', textTransform: 'uppercase', fontWeight: 700, fontSize: 9, letterSpacing: '0.08em', marginBottom: 14 }} className="pt-muted">Dato / underskrift</div>
+            <div style={{ borderBottom: '1px solid #1a1a1a', height: 18 }} className="pt-divider" />
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 
