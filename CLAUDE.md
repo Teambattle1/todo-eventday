@@ -51,3 +51,21 @@ After completing any significant task, automatically update this CLAUDE.md file 
 - You discovered something about the codebase structure worth noting
 
 Keep entries concise. Remove outdated entries. Never ask for permission to update this file.
+
+## URL-tilstand: nuqs som standard
+
+Brug **nuqs** som standardvalg til al "URL-værdig" tilstand i alle projekter
+(React + Vite / React Router). Wrap app'en i den rette NuqsAdapter.
+
+✅ BRUG nuqs til: filtre, faner, søgeord, paginering, valgt element, wizard-trin
+   → så links kan deles/bogmærkes, tilbage-knappen virker, og reload bevarer tilstanden.
+
+❌ BRUG IKKE nuqs til:
+   - Flygtig UI-tilstand (åben menu, hover, uafsendt formular) → lokal state (useState).
+   - Server-data (Supabase) → dataLaget/React Query, ikke URL.
+   - Følsomme data → ALDRIG i URL'en (logges/deles = privacy-fælde).
+   - Realtids/tunge data (fx GPS-spillets live-position, svar, billeder, videoklip)
+     → gentagne URL-opdateringer giver performance-problemer. Hold det ude af URL'en.
+
+Tommelfinger: skal tilstanden kunne deles via et link og overleve en reload?
+→ nuqs. Ellers ikke.
