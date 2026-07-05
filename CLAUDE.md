@@ -69,3 +69,20 @@ Brug **nuqs** som standardvalg til al "URL-værdig" tilstand i alle projekter
 
 Tommelfinger: skal tilstanden kunne deles via et link og overleve en reload?
 → nuqs. Ellers ikke.
+
+## Datahentning fra Supabase
+
+Hent ALTID data gennem et data-lag (TanStack/React Query) — aldrig løse fetch-kald
+spredt i komponenterne. Det giver caching, automatisk genhentning og ét sted at rette.
+
+✅ ALTID:
+   - Vis tydelig loading- OG fejl-tilstand. Intet må "hænge" uden feedback til brugeren.
+   - Hent kun de kolonner/rækker der bruges (undgå SELECT *), og undgå N+1 (hent i ét kald).
+   - Stol på RLS som sikkerhedslag — filtrér ikke kun i frontend.
+   - Brug realtime/subscriptions sparsomt — kun hvor live-opdatering giver reel værdi.
+
+❌ ALDRIG:
+   - Læg forretningslogik/adgangskontrol i frontend alene.
+   - Hent hele tabeller for at filtrere i browseren.
+
+Tommelfinger: én kilde til data (query-laget), tydelige tilstande, mindst mulig data hentet.
