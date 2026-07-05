@@ -14,10 +14,9 @@ export function useTodos() {
       .select('*')
       .order('created_at', { ascending: false })
 
-    if (!error && data && mountedRef.current) {
-      setTodos(data)
-      setLoading(false)
-    }
+    if (!mountedRef.current) return
+    if (!error && data) setTodos(data)
+    setLoading(false)
   }, [])
 
   const addTodo = useCallback(async (todo: Partial<Todo>) => {
@@ -36,6 +35,7 @@ export function useTodos() {
         lat: todo.lat || null,
         lon: todo.lon || null,
         geo_address: todo.geo_address || null,
+        images: todo.images && todo.images.length > 0 ? todo.images : null,
         resolved: false,
         is_error: false,
       })

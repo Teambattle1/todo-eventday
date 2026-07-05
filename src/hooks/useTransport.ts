@@ -14,10 +14,9 @@ export function useTransport() {
       .order('completed', { ascending: true })
       .order('created_at', { ascending: false })
 
-    if (!error && data && mountedRef.current) {
-      setItems(data)
-      setLoading(false)
-    }
+    if (!mountedRef.current) return
+    if (!error && data) setItems(data)
+    setLoading(false)
   }, [])
 
   const addItem = useCallback(async (fields: { title: string; direction: 'east_to_west' | 'west_to_east'; note?: string; assigned_to?: string }) => {

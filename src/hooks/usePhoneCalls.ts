@@ -14,10 +14,9 @@ export function usePhoneCalls() {
       .order('completed', { ascending: true })
       .order('created_at', { ascending: false })
 
-    if (!error && data && mountedRef.current) {
-      setItems(data)
-      setLoading(false)
-    }
+    if (!mountedRef.current) return
+    if (!error && data) setItems(data)
+    setLoading(false)
   }, [])
 
   const addCall = useCallback(async (fields: { navn: string; nummer: string; firma?: string; note?: string; assigned_to?: string; urgent?: boolean; due_date?: string }) => {

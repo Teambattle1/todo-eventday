@@ -28,14 +28,20 @@
 - Built-in views: today, week, upcoming, inbox, thomas, maria, crew, phone, skilte, code, repair, transport, shop, ideas, sessions
 - Custom lists stored in `custom_lists` table, items are `todos` with `category = "custom:{list_id}"`
 - View state managed via `nuqs` (URL query params)
-- QuickCreate modal (Ctrl+N) for fast task creation
+- QuickCreate modal (Ctrl+K or plain N) for fast task creation
 - QuickCall modal for fast phone call creation
 
 ## Known issues / gotchas
 - Vite has port 5174 hardcoded in `vite.config.ts`, `.claude/launch.json` uses port 5175 as fallback
 - Old "SKILTE MANGLER" custom list may still exist alongside the new built-in `skilte` view — user should delete the custom list manually
+- FLOW's Excel-sync creates `task_jobs` with status `scheduled`/`active` (English) — the DB trigger `handle_session_todo` still only fires on status→`accepteret`, so template todos are NOT auto-created for Excel-synced jobs (pending decision)
+- Dates: ALWAYS use `localDateStr()` from `lib/utils` for YYYY-MM-DD strings — `toISOString().slice(0,10)` gives the UTC date and is wrong between midnight and 01/02 Danish time
+- ESLint has ~84 pre-existing errors (`no-explicit-any`, strict `react-hooks` rules) — the deploy gate is `npm run build` (tsc + vite), which must be green
 
 ## Recent decisions
+- Session-todos (`category = "session:*"`) and ideas are EXCLUDED from the generic views (I dag / Denne uge / Kommende / Indbakke) — they live in their own views; shared predicate `isPlainTask` in App.tsx
+- Sessions view shows statuses `scheduled`/`active` (FLOW's current vocabulary) plus legacy `sendt`/`accepteret`/`aktiv`/`confirmed`
+- Table conversions (todo↔shop↔call↔transport) pass the modal's current draft values and never delete the original row if the insert failed
 - Sessions view reads from `task_jobs` table (shared with FLOW), todos stored in `todos` table with `category = "session:{job_id}"`
 - Sessions view groups jobs by ISO week, auto-collapses past weeks, search by client/job-ID/location/date
 - Skilte mangler view reads directly from `skilte` table (shared with FLOW) instead of using custom list todos

@@ -27,25 +27,30 @@ export function useLists() {
     setLoading(false)
   }, [])
 
-  // One-time migration from localStorage to Supabase
+  // One-time migration from localStorage to Supabase.
+  // VIGTIGT: flaget i localStorage sikrer at migreringen kun kører én gang pr. klient —
+  // ellers ville gamle localStorage-rækker genoplive slettede lister og overskrive omdøbninger ved hvert reload.
   const migrateFromLocalStorage = useCallback(async () => {
     if (migratedRef.current) return
     migratedRef.current = true
     try {
+      if (localStorage.getItem('listsMigratedToDb') === '1') return
       const lsLists = JSON.parse(localStorage.getItem('customLists') || '[]') as CustomList[]
       const lsSections = JSON.parse(localStorage.getItem('listSections') || '{}') as Record<string, { id: string; name: string; color?: string }[]>
       if (lsLists.length) {
         const rows = lsLists.map((l, i) => ({ id: l.id, name: l.name, color: l.color, sort_order: i }))
-        await supabase.from('custom_lists').upsert(rows, { onConflict: 'id' })
+        const { error } = await supabase.from('custom_lists').upsert(rows, { onConflict: 'id' })
+        if (error) return
       }
       const sectionRows: ListSection[] = []
       Object.entries(lsSections).forEach(([listKey, arr]) => {
         arr.forEach((s, i) => sectionRows.push({ id: s.id, list_key: listKey, name: s.name, color: s.color || null, sort_order: i }))
       })
       if (sectionRows.length) {
-        await supabase.from('list_sections').upsert(sectionRows, { onConflict: 'id' })
+        const { error } = await supabase.from('list_sections').upsert(sectionRows, { onConflict: 'id' })
+        if (error) return
       }
-      // Keep localStorage as a cached fallback; don't delete yet
+      localStorage.setItem('listsMigratedToDb', '1')
       if (lsLists.length || sectionRows.length) {
         await fetchAll()
       }

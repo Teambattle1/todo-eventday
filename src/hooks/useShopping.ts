@@ -15,16 +15,16 @@ export function useShopping() {
       .order('urgent', { ascending: false })
       .order('created_at', { ascending: false })
 
-    if (!error && data && mountedRef.current) {
-      setItems(data)
-      setLoading(false)
-    }
+    if (!mountedRef.current) return
+    if (!error && data) setItems(data)
+    setLoading(false)
   }, [])
 
-  const addItem = useCallback(async (title: string, note?: string, url?: string, due_date?: string, urgent?: boolean) => {
+  // extra: valgfrie felter (assigned_to, lat/lon, images m.fl.) — bruges når en opgave konverteres til indkøb
+  const addItem = useCallback(async (title: string, note?: string, url?: string, due_date?: string, urgent?: boolean, extra?: Partial<ShoppingItem>) => {
     const { data, error } = await supabase
       .from('todo_shopping')
-      .insert({ title, note: note || null, url: url || null, due_date: due_date || null, urgent: urgent || false })
+      .insert({ title, note: note || null, url: url || null, due_date: due_date || null, urgent: urgent || false, ...extra })
       .select()
       .single()
 

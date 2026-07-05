@@ -13,10 +13,9 @@ export function useSkilte() {
       .select('*')
       .order('created_at', { ascending: true })
 
-    if (!error && data && mountedRef.current) {
-      setItems(data)
-      setLoading(false)
-    }
+    if (!mountedRef.current) return
+    if (!error && data) setItems(data)
+    setLoading(false)
   }, [])
 
   const addSkilt = useCallback(async (fields: { text: string; color?: string }) => {

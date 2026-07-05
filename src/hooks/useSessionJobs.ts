@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase'
 import type { SessionJob } from '../lib/types'
 
 const FIELDS = 'id, short_code, client_name, client_contact_name, client_contact_phone, event_date, event_end, location_name, location_city, status, guests_count, activities, notes, task_notes, created_at'
-const VISIBLE_STATUSES = ['sendt', 'accepteret', 'aktiv', 'confirmed']
+// FLOW's Excel-sync opretter jobs som 'scheduled'/'active' — de gamle danske statusser beholdes for bagudkompatibilitet
+const VISIBLE_STATUSES = ['scheduled', 'active', 'sendt', 'accepteret', 'aktiv', 'confirmed']
 
 export function useSessionJobs() {
   const [items, setItems] = useState<SessionJob[]>([])
@@ -21,10 +22,9 @@ export function useSessionJobs() {
       .in('status', VISIBLE_STATUSES)
       .order('event_date', { ascending: false, nullsFirst: false })
 
-    if (!error && data && mountedRef.current) {
-      setItems(data)
-      setLoading(false)
-    }
+    if (!mountedRef.current) return
+    if (!error && data) setItems(data)
+    setLoading(false)
   }, [])
 
   useEffect(() => {

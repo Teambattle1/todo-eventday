@@ -73,6 +73,12 @@ export function parseDescription(desc: string | null): ParsedDescription {
   return { type: 'text', text: desc }
 }
 
+// Lokal dato som YYYY-MM-DD — brug denne i stedet for toISOString().slice(0,10),
+// som giver UTC-datoen og derfor rammer forkert mellem midnat og kl. 01/02 dansk tid.
+export function localDateStr(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 // Tjek om en dato er overskredet
 export function isOverdue(dueDate: string | null): boolean {
   if (!dueDate) return false
