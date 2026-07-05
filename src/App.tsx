@@ -2001,7 +2001,13 @@ function LeafletMap({ lat, lon, onMapClick }: { lat: number; lon: number; onMapC
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
+    // import('leaflet') er async: hvis komponenten unmountes før promisen resolver,
+    // ville kortet ellers blive oprettet på en detached container og aldrig ryddet
+    // op (leak + "Map container is already initialized" ved genåbning).
+    let cancelled = false
+    let invalidateTimer: ReturnType<typeof setTimeout> | null = null
     import('leaflet').then(L => {
+      if (cancelled || !containerRef.current) return
       // Inject Leaflet CSS if not already present
       if (!document.getElementById('leaflet-css')) {
         const link = document.createElement('link')
@@ -2011,7 +2017,7 @@ function LeafletMap({ lat, lon, onMapClick }: { lat: number; lon: number; onMapC
         document.head.appendChild(link)
       }
 
-      const map = L.map(containerRef.current!, { zoomControl: true, attributionControl: true }).setView([lat, lon], 15)
+      const map = L.map(containerRef.current, { zoomControl: true, attributionControl: true }).setView([lat, lon], 15)
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap',
       }).addTo(map)
@@ -2028,16 +2034,18 @@ function LeafletMap({ lat, lon, onMapClick }: { lat: number; lon: number; onMapC
 
       map.on('click', (e: any) => {
         const { lat: cLat, lng: cLon } = e.latlng
-        markerRef.current.setLatLng([cLat, cLon])
+        markerRef.current?.setLatLng([cLat, cLon])
         onMapClick(cLat, cLon)
       })
 
       // Fix tiles not loading due to container resize
-      setTimeout(() => map.invalidateSize(), 200)
+      invalidateTimer = setTimeout(() => map.invalidateSize(), 200)
     })
 
     return () => {
-      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null }
+      cancelled = true
+      if (invalidateTimer) clearTimeout(invalidateTimer)
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; markerRef.current = null }
     }
   }, []) // eslint-disable-line
 
