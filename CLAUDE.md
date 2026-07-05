@@ -38,7 +38,7 @@
 - ESLint has ~84 pre-existing errors (`no-explicit-any`, strict `react-hooks` rules) — the deploy gate is `npm run build` (tsc + vite), which must be green
 
 ## Recent decisions
-- DB hardening (July 2026, applied as migrations on MAIN): RLS enabled on 30 previously-unprotected shared tables (with behavior-preserving `<table>_allow_all` policies — tighten per app later), duplicate permissive policies dropped on `activities`/`employees`, 9 unused indexes dropped on `todos`/`locations`/`task_jobs`
+- DB hardening (July 2026, applied as migrations on MAIN): RLS enabled on 30 previously-unprotected shared tables (with behavior-preserving `<table>_allow_all` policies — tighten per app later), duplicate permissive policies dropped on `activities`/`employees`, 9 unused indexes dropped on `todos`/`locations`/`task_jobs`, and the 4 `SECURITY DEFINER` views (`gear_v`, `trailers_v`, `vehicles_v`, `employee_course_completion`) switched to `security_invoker` — zero ERROR-level advisor findings remain; only pending item is the Postgres upgrade (dashboard, brief downtime for all 17 projects)
 - Session-todos (`category = "session:*"`) and ideas are EXCLUDED from the generic views (I dag / Denne uge / Kommende / Indbakke) — they live in their own views; shared predicate `isPlainTask` in App.tsx
 - Sessions view shows statuses `scheduled`/`active` (FLOW's current vocabulary) plus legacy `sendt`/`accepteret`/`aktiv`/`confirmed`
 - Table conversions (todo↔shop↔call↔transport) pass the modal's current draft values and never delete the original row if the insert failed
