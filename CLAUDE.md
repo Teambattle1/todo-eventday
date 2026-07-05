@@ -21,7 +21,7 @@
 - `task_jobs` table is shared with FLOW — used by Sessions view (read-only, 99 columns)
 - `activities` table is shared with FLOW — activity definitions (A1=TeamChallenge, A2=TeamLazer, etc.)
 - `session_todo_templates` table stores per-activity todo checklists that auto-insert when a job is accepted
-- DB trigger `handle_session_todo` on `task_jobs`: auto-creates template todos on status→accepteret, deletes on afvist/deleted, syncs on activity changes
+- DB trigger `handle_session_todo` on `task_jobs` (INSERT + UPDATE): auto-creates template todos when a job becomes active (`accepteret`/`scheduled`/`active`/`aktiv` — Excel-sync INSERTs as `scheduled`), deletes on afvist/deleted, syncs on activity/date/name changes. Fallback todo (client name) only on `accepteret`; scheduled-path skips past-dated jobs to avoid backfill spam
 - All other tables (`todos`, `phone_calls`, `todo_shopping`, `transport_items`, `custom_lists`, `list_sections`) are TODO-specific
 
 ## Active patterns
@@ -34,11 +34,11 @@
 ## Known issues / gotchas
 - Vite has port 5174 hardcoded in `vite.config.ts`, `.claude/launch.json` uses port 5175 as fallback
 - Old "SKILTE MANGLER" custom list may still exist alongside the new built-in `skilte` view — user should delete the custom list manually
-- FLOW's Excel-sync creates `task_jobs` with status `scheduled`/`active` (English) — the DB trigger `handle_session_todo` still only fires on status→`accepteret`, so template todos are NOT auto-created for Excel-synced jobs (pending decision)
 - Dates: ALWAYS use `localDateStr()` from `lib/utils` for YYYY-MM-DD strings — `toISOString().slice(0,10)` gives the UTC date and is wrong between midnight and 01/02 Danish time
 - ESLint has ~84 pre-existing errors (`no-explicit-any`, strict `react-hooks` rules) — the deploy gate is `npm run build` (tsc + vite), which must be green
 
 ## Recent decisions
+- DB hardening (July 2026, applied as migrations on MAIN): RLS enabled on 30 previously-unprotected shared tables (with behavior-preserving `<table>_allow_all` policies — tighten per app later), duplicate permissive policies dropped on `activities`/`employees`, 9 unused indexes dropped on `todos`/`locations`/`task_jobs`
 - Session-todos (`category = "session:*"`) and ideas are EXCLUDED from the generic views (I dag / Denne uge / Kommende / Indbakke) — they live in their own views; shared predicate `isPlainTask` in App.tsx
 - Sessions view shows statuses `scheduled`/`active` (FLOW's current vocabulary) plus legacy `sendt`/`accepteret`/`aktiv`/`confirmed`
 - Table conversions (todo↔shop↔call↔transport) pass the modal's current draft values and never delete the original row if the insert failed
